@@ -1,0 +1,24 @@
+/* Silver Touch design tokens. Brand colours live here only (CLAUDE.md).
+   These are placeholders until the brand sheet confirms the real logo, colours and typeface. */
+:root {
+  --brand: #0e5e4a;
+  --brand-deep: #0a4537;
+  --accent: #9aaab4;
+  --bg: #f2f5f4;
+  --surface: #ffffff;
+  --ink: #17241f;
+  --muted: #5b6964;
+  --line: #dce3e0;
+  --soft: #e8eeeb;
+  --good: #1d7049;
+  --good-bg: #e2f2e9;
+  --warn: #8f5509;
+  --warn-bg: #fbeed6;
+  --bad: #a23a2e;
+  --bad-bg: #f7e2df;
+  --info: #2d4f85;
+  --info-bg: #e3ebf7;
+  --badge: #f2c14e;
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}

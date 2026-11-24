@@ -1,0 +1,10 @@
+.next
+node_modules
+public/models
+playwright-report
+test-results
+CLAUDE.md
+HRMS_BUILD_PLAN.md
+docs
+.env*
+prisma/migrations

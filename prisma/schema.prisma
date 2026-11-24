@@ -1,0 +1,379 @@
+// Silver Touch HRMS data model. Dates are IST business dates (@db.Date); instants are timestamptz.
+// Money is integer paise.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum WorkMode {
+  OFFICE
+  HYBRID
+  REMOTE
+}
+
+enum PunchDirection {
+  IN
+  OUT
+}
+
+enum PunchMethod {
+  WEB
+  GEO
+  FACE
+  KIOSK
+  HR
+  REGULARISED
+  DEVICE
+}
+
+enum PunchFlag {
+  OUTSIDE_GEOFENCE
+}
+
+enum DayStatus {
+  PRESENT
+  LATE
+  SHORT
+  ABSENT
+  LEAVE
+  HOLIDAY
+  WEEKEND
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REIMBURSED
+}
+
+enum ConsentKind {
+  FACE
+  LOCATION
+}
+
+model Employee {
+  id        String         @id @default(cuid())
+  code      String         @unique
+  name      String
+  email     String         @unique
+  phone     String?
+  dept      String
+  title     String
+  managerId String?
+  manager   Employee?      @relation("Reports", fields: [managerId], references: [id])
+  reports   Employee[]     @relation("Reports")
+  joinedOn  DateTime       @db.Date
+  status    EmployeeStatus @default(ACTIVE)
+  workMode  WorkMode       @default(OFFICE)
+  officeId  String?
+  office    Office?        @relation(fields: [officeId], references: [id])
+  ctcPaise  BigInt         @default(0)
+  createdAt DateTime       @default(now()) @db.Timestamptz
+  updatedAt DateTime       @updatedAt @db.Timestamptz
+
+  roles          EmployeeRole[]
+  punches        Punch[]
+  days           AttendanceDay[]
+  leaveBalances  LeaveBalance[]
+  leaveRequests  LeaveRequest[]   @relation("LeaveRequester")
+  leaveDecisions LeaveRequest[]   @relation("LeaveApprover")
+  regs           Regularisation[] @relation("RegRequester")
+  regDecisions   Regularisation[] @relation("RegApprover")
+  expenses       ExpenseClaim[]   @relation("ExpenseClaimant")
+  expApprovals   ExpenseClaim[]   @relation("ExpenseApprover")
+  expPayments    ExpenseClaim[]   @relation("ExpensePayer")
+  announcements  Announcement[]
+  faceTemplate   FaceTemplate?
+  consents       ConsentRecord[]
+  auditLogs      AuditLog[]
+
+  @@index([managerId])
+  @@index([dept])
+}
+
+model Role {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  permissions String[]
+  isSystem    Boolean        @default(false)
+  sortOrder   Int            @default(100)
+  members     EmployeeRole[]
+}
+
+model EmployeeRole {
+  employeeId String
+  roleId     String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, roleId])
+}
+
+model Office {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  name        String
+  lat         Float
+  lng         Float
+  radiusM     Int           @default(200)
+  faceEnabled Boolean       @default(true)
+  geoEnabled  Boolean       @default(true)
+  employees   Employee[]
+  holidays    Holiday[]
+  kiosks      KioskDevice[]
+  punches     Punch[]
+}
+
+model Shift {
+  id            String  @id @default(cuid())
+  name          String  @default("General")
+  start         String  @default("09:30") // HH:mm IST
+  end           String  @default("18:30")
+  lateAfter     String  @default("09:40")
+  shortDayHours Float   @default(4.5)
+  isDefault     Boolean @default(true)
+}
+
+model Punch {
+  id           String         @id @default(cuid())
+  employeeId   String
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  at           DateTime       @db.Timestamptz
+  businessDate DateTime       @db.Date
+  direction    PunchDirection
+  method       PunchMethod
+  lat          Float?
+  lng          Float?
+  accuracyM    Int?
+  distanceM    Int?
+  officeId     String?
+  office       Office?        @relation(fields: [officeId], references: [id])
+  faceScore    Float?
+  flag         PunchFlag?
+  deviceInfo   String?
+  createdAt    DateTime       @default(now()) @db.Timestamptz
+
+  @@index([employeeId, businessDate])
+  @@index([businessDate])
+}
+
+model AttendanceDay {
+  employeeId   String
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  businessDate DateTime     @db.Date
+  firstIn      DateTime?    @db.Timestamptz
+  lastOut      DateTime?    @db.Timestamptz
+  hours        Float?
+  status       DayStatus
+  inMethod     PunchMethod?
+  outMethod    PunchMethod?
+  officeId     String?
+  remote       Boolean      @default(false)
+  flagged      Boolean      @default(false)
+  finalised    Boolean      @default(false)
+  updatedAt    DateTime     @updatedAt @db.Timestamptz
+
+  @@id([employeeId, businessDate])
+  @@index([businessDate])
+}
+
+model LeaveType {
+  code         String         @id
+  name         String
+  annualDays   Int
+  carryForward Int            @default(0)
+  active       Boolean        @default(true)
+  balances     LeaveBalance[]
+  requests     LeaveRequest[]
+}
+
+model LeaveBalance {
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeCode String
+  leaveType     LeaveType @relation(fields: [leaveTypeCode], references: [code])
+  year          Int
+  opening       Float     @default(0)
+  accrued       Float     @default(0)
+  used          Float     @default(0)
+
+  @@id([employeeId, leaveTypeCode, year])
+}
+
+model LeaveRequest {
+  id         String        @id @default(cuid())
+  code       String        @unique
+  employeeId String
+  employee   Employee      @relation("LeaveRequester", fields: [employeeId], references: [id], onDelete: Cascade)
+  type       String
+  leaveType  LeaveType     @relation(fields: [type], references: [code])
+  from       DateTime      @db.Date
+  to         DateTime      @db.Date
+  days       Float
+  reason     String
+  status     RequestStatus @default(PENDING)
+  approverId String?
+  approver   Employee?     @relation("LeaveApprover", fields: [approverId], references: [id])
+  comment    String?
+  decidedAt  DateTime?     @db.Timestamptz
+  createdAt  DateTime      @default(now()) @db.Timestamptz
+
+  @@index([employeeId, status])
+}
+
+model Holiday {
+  id       String   @id @default(cuid())
+  date     DateTime @db.Date
+  name     String
+  officeId String?
+  office   Office?  @relation(fields: [officeId], references: [id], onDelete: Cascade)
+
+  @@index([date])
+}
+
+model Regularisation {
+  id         String        @id @default(cuid())
+  code       String        @unique
+  employeeId String
+  employee   Employee      @relation("RegRequester", fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime      @db.Date
+  inTime     String // HH:mm IST
+  outTime    String
+  reason     String
+  status     RequestStatus @default(PENDING)
+  approverId String?
+  approver   Employee?     @relation("RegApprover", fields: [approverId], references: [id])
+  comment    String?
+  decidedAt  DateTime?     @db.Timestamptz
+  createdAt  DateTime      @default(now()) @db.Timestamptz
+
+  @@index([employeeId, status])
+}
+
+model ExpenseClaim {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  employeeId  String
+  employee    Employee      @relation("ExpenseClaimant", fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime      @db.Date
+  category    String
+  amountPaise BigInt
+  note        String
+  receiptKey  String?
+  receiptName String?
+  receiptType String?
+  status      ExpenseStatus @default(PENDING)
+  approverId  String?
+  approver    Employee?     @relation("ExpenseApprover", fields: [approverId], references: [id])
+  paidById    String?
+  paidBy      Employee?     @relation("ExpensePayer", fields: [paidById], references: [id])
+  comment     String?
+  decidedAt   DateTime?     @db.Timestamptz
+  paidAt      DateTime?     @db.Timestamptz
+  createdAt   DateTime      @default(now()) @db.Timestamptz
+
+  @@index([employeeId, status])
+}
+
+model Announcement {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  authorId    String
+  author      Employee @relation(fields: [authorId], references: [id])
+  pinned      Boolean  @default(false)
+  publishedAt DateTime @default(now()) @db.Timestamptz
+}
+
+model FaceTemplate {
+  employeeId     String   @id
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  samples        Bytes // AES-256-GCM encrypted JSON array of 128-number descriptors
+  sampleCount    Int
+  consentAt      DateTime @db.Timestamptz
+  consentVersion String
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+}
+
+model ConsentRecord {
+  id          String      @id @default(cuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  kind        ConsentKind
+  version     String
+  givenAt     DateTime    @default(now()) @db.Timestamptz
+  withdrawnAt DateTime?   @db.Timestamptz
+
+  @@index([employeeId, kind])
+}
+
+model KioskDevice {
+  id         String    @id @default(cuid())
+  officeId   String
+  office     Office    @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  name       String
+  secret     String // AES-256-GCM encrypted TOTP secret (base64)
+  tokenHash  String // sha256 of the access token embedded in the kiosk URL
+  revokedAt  DateTime? @db.Timestamptz
+  lastSeenAt DateTime? @db.Timestamptz
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+}
+
+model AuditLog {
+  id       String    @id @default(cuid())
+  at       DateTime  @default(now()) @db.Timestamptz
+  actorId  String?
+  actor    Employee? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  role     String?
+  action   String
+  entity   String
+  entityId String?
+  detail   Json?
+
+  @@index([at])
+  @@index([actorId])
+  @@index([entity, entityId])
+}
+
+model Setting {
+  key   String @id
+  value Json
+}
+
+model VerificationCode {
+  id        String    @id @default(cuid())
+  email     String
+  codeHash  String
+  expiresAt DateTime  @db.Timestamptz
+  attempts  Int       @default(0)
+  usedAt    DateTime? @db.Timestamptz
+  createdAt DateTime  @default(now()) @db.Timestamptz
+
+  @@index([email])
+}
+
+model RateEvent {
+  id  String   @id @default(cuid())
+  key String
+  at  DateTime @default(now()) @db.Timestamptz
+
+  @@index([key, at])
+}
