@@ -4,9 +4,12 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEq
 function key(name: 'FACE_TEMPLATE_KEY' | 'APP_ENCRYPTION_KEY'): Buffer {
   const raw = process.env[name];
   if (!raw) throw new Error(`${name} is not set`);
+  // Preferred: 32 random bytes, base64 (openssl rand -base64 32). Any other value of 32+ characters
+  // (for example a long password) is accepted and stretched to 32 bytes with SHA-256.
   const k = Buffer.from(raw, 'base64');
-  if (k.length !== 32) throw new Error(`${name} must be 32 bytes, base64 encoded`);
-  return k;
+  if (k.length === 32 && /^[A-Za-z0-9+/]{43}=$/.test(raw)) return k;
+  if (raw.length < 32) throw new Error(`${name} must be at least 32 characters`);
+  return createHash('sha256').update(raw, 'utf8').digest();
 }
 
 /** AES-256-GCM. Output layout: 12-byte IV | 16-byte tag | ciphertext. */

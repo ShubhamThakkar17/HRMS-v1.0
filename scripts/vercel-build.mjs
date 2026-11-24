@@ -1,4 +1,5 @@
 // Vercel build step: apply migrations, and on a brand-new demo database load the sample company.
+// Encryption keys may be any 32+ character secret (see src/server/crypto.ts).
 // Uses the direct (unpooled) connection for migrations when the Neon integration provides one.
 import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';

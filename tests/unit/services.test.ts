@@ -323,3 +323,16 @@ describe('dates sanity for fixtures', () => {
     expect(fromDbDate(toDbDate(businessDate()))).toBe(businessDate());
   });
 });
+
+describe('encryption keys', () => {
+  it('accepts a long passphrase as well as a base64 key', async () => {
+    const { encryptString, decryptString } = await import('@/server/crypto');
+    const prev = process.env.APP_ENCRYPTION_KEY;
+    process.env.APP_ENCRYPTION_KEY = 'a long passphrase that is not base64 at all!!';
+    expect(decryptString(encryptString('hello'))).toBe('hello');
+    process.env.APP_ENCRYPTION_KEY = 'too short';
+    expect(() => encryptString('x')).toThrow(/at least 32/);
+    process.env.APP_ENCRYPTION_KEY = prev;
+    expect(decryptString(encryptString('hello'))).toBe('hello');
+  });
+});

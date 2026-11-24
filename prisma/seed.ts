@@ -33,8 +33,14 @@ function hm(m: number) {
 function encryptForApp(s: string): string {
   const raw = process.env.APP_ENCRYPTION_KEY;
   if (!raw) throw new Error('APP_ENCRYPTION_KEY is not set');
+  // Same key rule as src/server/crypto.ts.
+  const b = Buffer.from(raw, 'base64');
+  const key =
+    b.length === 32 && /^[A-Za-z0-9+/]{43}=$/.test(raw)
+      ? b
+      : createHash('sha256').update(raw, 'utf8').digest();
   const iv = randomBytes(12);
-  const c = createCipheriv('aes-256-gcm', Buffer.from(raw, 'base64'), iv);
+  const c = createCipheriv('aes-256-gcm', key, iv);
   const body = Buffer.concat([c.update(Buffer.from(s)), c.final()]);
   return Buffer.concat([iv, c.getAuthTag(), body]).toString('base64');
 }
