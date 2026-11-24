@@ -377,3 +377,12 @@ model RateEvent {
 
   @@index([key, at])
 }
+
+// Receipt bytes when STORAGE_DRIVER=db (simple hosting with no object storage, e.g. a pilot on Vercel).
+model StoredFile {
+  key         String   @id
+  contentType String
+  size        Int
+  bytes       Bytes
+  createdAt   DateTime @default(now()) @db.Timestamptz
+}

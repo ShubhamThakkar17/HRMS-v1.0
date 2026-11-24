@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { readLocalObject, sniffType, verifyLocalSignature } from '@/server/services/storage';
 
-/** Serves local-driver receipts behind an HMAC-signed, expiring URL (development storage only). */
+/** Serves local- or db-driver receipts behind an HMAC-signed, expiring URL. */
 export async function GET(req: Request, { params }: { params: Promise<{ key: string[] }> }) {
-  if ((process.env.STORAGE_DRIVER ?? 'local') !== 'local')
+  if (!['local', 'db'].includes(process.env.STORAGE_DRIVER ?? 'local')) {
     return new NextResponse('Not found', { status: 404 });
+  }
   const { key } = await params;
   const k = key.map(decodeURIComponent).join('/');
   const u = new URL(req.url);

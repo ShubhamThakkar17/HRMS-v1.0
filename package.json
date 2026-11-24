@@ -17,7 +17,8 @@
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
     "postinstall": "prisma generate && node scripts/copy-face-models.mjs",
-    "pretest": "node scripts/prepare-test-db.mjs"
+    "pretest": "node scripts/prepare-test-db.mjs",
+    "vercel-build": "node scripts/vercel-build.mjs && next build"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -2,8 +2,10 @@ import 'server-only';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { db } from '../db';
 
 // Receipt storage. "local" writes to ./.data/receipts (development only).
+// "db" keeps the bytes in Postgres (pilots on serverless hosting without object storage).
 // "supabase" uses Supabase Storage (private bucket) through its REST API.
 
 export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
@@ -53,6 +55,15 @@ export async function putObject(key: string, body: Buffer, contentType: string):
     if (!res.ok) throw new Error(`Upload failed (${res.status})`);
     return;
   }
+  if (driver() === 'db') {
+    const bytes = new Uint8Array(body);
+    await db.storedFile.upsert({
+      where: { key },
+      create: { key, contentType, size: body.length, bytes },
+      update: { contentType, size: body.length, bytes },
+    });
+    return;
+  }
   const path = join(localRoot(), key);
   await mkdir(join(path, '..'), { recursive: true });
   await writeFile(path, body);
@@ -88,7 +99,13 @@ export function verifyLocalSignature(key: string, exp: number, sig: string): boo
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Read an object stored by the local or db driver (served through the signed /api/files route). */
 export async function readLocalObject(key: string): Promise<Buffer> {
+  if (driver() === 'db') {
+    const f = await db.storedFile.findUnique({ where: { key } });
+    if (!f) throw new Error('Not found');
+    return Buffer.from(f.bytes);
+  }
   const root = localRoot();
   const path = resolve(root, key);
   if (!path.startsWith(root + '/')) throw new Error('Bad key');

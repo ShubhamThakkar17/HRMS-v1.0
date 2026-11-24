@@ -33,7 +33,7 @@ export default defineConfig({
       FACE_TEMPLATE_KEY: process.env.FACE_TEMPLATE_KEY ?? Buffer.alloc(32, 7).toString('base64'),
       APP_ENCRYPTION_KEY: process.env.APP_ENCRYPTION_KEY ?? Buffer.alloc(32, 9).toString('base64'),
       CRON_SECRET: 'e2e-cron-secret',
-      STORAGE_DRIVER: 'local',
+      STORAGE_DRIVER: process.env.E2E_STORAGE_DRIVER ?? 'local',
     },
   },
 });
