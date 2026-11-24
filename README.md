@@ -94,7 +94,7 @@ scripts/restore-drill.sh           # back up, restore to a scratch DB, compare e
 ## Deploying (recommended defaults from the plan)
 
 1. Create a Postgres database in Mumbai (Supabase or Neon) and set `DATABASE_URL`.
-2. Create a Vercel project from this repository; region `bom1` is set in `vercel.json`.
+2. Create a Vercel project from this repository. `vercel.json` pins functions to `sin1` (Singapore) to sit next to the pilot database; use `bom1` with a Mumbai database.
 3. Set the environment variables from `.env.example` in Vercel (production values, `AUTH_DEMO` unset).
 4. Google sign-in: create an OAuth client (Web), add `https://<domain>/api/auth/callback/google`, set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `AUTH_GOOGLE_HD` (your Workspace domain).
 5. Email codes: set `RESEND_API_KEY` and `EMAIL_FROM` (verified sender domain).
