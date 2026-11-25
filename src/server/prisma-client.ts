@@ -9,6 +9,8 @@ export function createPrismaClient(url = process.env.DATABASE_URL): PrismaClient
   const schema = u.searchParams.get('schema') ?? undefined;
   // Prisma-only parameters that node-postgres does not understand.
   for (const p of ['schema', 'pgbouncer', 'connection_limit', 'pool_timeout']) u.searchParams.delete(p);
+  // node-postgres already treats "require" as "verify-full"; say so explicitly (silences its warning).
+  if (['require', 'prefer', 'verify-ca'].includes(u.searchParams.get('sslmode') ?? '')) u.searchParams.set('sslmode', 'verify-full');
   const adapter = new PrismaPg(
     { connectionString: u.toString(), max: Number(process.env.DB_POOL_MAX ?? 5) },
     { schema },
