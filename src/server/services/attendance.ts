@@ -68,6 +68,7 @@ export interface PunchInput {
   accuracyM?: number | null;
   distanceM?: number | null;
   officeId?: string | null;
+  zoneName?: string | null;
   flag?: 'OUTSIDE_GEOFENCE' | null;
   faceScore?: number | null;
   deviceInfo?: string | null;
@@ -101,6 +102,7 @@ export async function recordPunch(user: CurrentUser, input: PunchInput, at: Date
         accuracyM: input.accuracyM ?? null,
         distanceM: input.distanceM ?? null,
         officeId: input.officeId ?? null,
+        zoneName: input.zoneName ?? null,
         flag: input.flag ?? null,
         faceScore: input.faceScore ?? null,
         deviceInfo: input.deviceInfo?.slice(0, 300) ?? null,
@@ -110,6 +112,7 @@ export async function recordPunch(user: CurrentUser, input: PunchInput, at: Date
     await writeAudit(tx, user, direction === 'IN' ? 'punch.in' : 'punch.out', 'Punch', punch.id, {
       method: input.method,
       officeId: input.officeId ?? null,
+      zoneName: input.zoneName ?? null,
       distanceM: input.distanceM ?? null,
       flag: input.flag ?? null,
     });
@@ -220,6 +223,94 @@ export interface CalendarDay {
   distanceM?: number | null;
   accuracyM?: number | null;
   faceScore?: number | null;
+  zoneName?: string | null;
+}
+
+type EmpLite = { id: string; joinedOn: Date; officeId: string | null };
+
+/** Day-by-day attendance for many employees over a range, in four queries whatever the headcount. */
+export async function attendanceForMany(
+  emps: EmpLite[],
+  from: ISODate,
+  to: ISODate,
+  today = businessDate(),
+): Promise<Map<string, CalendarDay[]>> {
+  const ids = emps.map((e) => e.id);
+  const range = { gte: toDbDate(from), lte: toDbDate(to) };
+  const [rows, holidayRows, leaves, inPunches] = await Promise.all([
+    db.attendanceDay.findMany({ where: { employeeId: { in: ids }, businessDate: range } }),
+    db.holiday.findMany({ where: { date: range } }),
+    db.leaveRequest.findMany({
+      where: {
+        employeeId: { in: ids },
+        status: 'APPROVED',
+        from: { lte: toDbDate(to) },
+        to: { gte: toDbDate(from) },
+      },
+      select: { employeeId: true, from: true, to: true },
+    }),
+    db.punch.findMany({
+      where: { employeeId: { in: ids }, direction: 'IN', businessDate: range },
+      select: {
+        employeeId: true,
+        businessDate: true,
+        distanceM: true,
+        accuracyM: true,
+        faceScore: true,
+        zoneName: true,
+      },
+    }),
+  ]);
+  const key = (id: string, d: ISODate) => `${id}|${d}`;
+  const rowBy = new Map(rows.map((r) => [key(r.employeeId, fromDbDate(r.businessDate)), r]));
+  const punchBy = new Map(inPunches.map((p) => [key(p.employeeId, fromDbDate(p.businessDate)), p]));
+  const leaveSet = new Set<string>();
+  for (const l of leaves) {
+    for (const d of eachDay(fromDbDate(l.from), fromDbDate(l.to)))
+      if (d >= from && d <= to) leaveSet.add(key(l.employeeId, d));
+  }
+  const days = eachDay(from, to);
+  const out = new Map<string, CalendarDay[]>();
+  for (const e of emps) {
+    const holidayName = new Map(
+      holidayRows
+        .filter((h) => h.officeId === null || h.officeId === e.officeId)
+        .map((h) => [fromDbDate(h.date), h.name]),
+    );
+    const joined = fromDbDate(e.joinedOn);
+    out.set(
+      e.id,
+      days.map((date): CalendarDay => {
+        const r = rowBy.get(key(e.id, date));
+        const p = punchBy.get(key(e.id, date));
+        return {
+          date,
+          status: displayStatus({
+            date,
+            today,
+            joinedOn: joined,
+            stored: (r?.status as DayStatusCode | undefined) ?? null,
+            isHoliday: holidayName.has(date),
+            onLeave: leaveSet.has(key(e.id, date)),
+          }),
+          firstIn: r?.firstIn ?? null,
+          lastOut: r?.lastOut ?? null,
+          hours: r?.hours ?? null,
+          inMethod: r?.inMethod ?? null,
+          outMethod: r?.outMethod ?? null,
+          officeId: r?.officeId ?? null,
+          remote: r?.remote ?? false,
+          flagged: r?.flagged ?? false,
+          holidayName: holidayName.get(date),
+          distanceM: p?.distanceM ?? null,
+          accuracyM: p?.accuracyM ?? null,
+          faceScore: p?.faceScore ?? null,
+          zoneName: p?.zoneName ?? null,
+        };
+      }),
+    );
+  }
+  return out;
 }
 
 /** Day-by-day attendance for one employee over a range. */
@@ -229,54 +320,12 @@ export async function attendanceRange(
   to: ISODate,
   today = businessDate(),
 ) {
-  const emp = await db.employee.findUnique({ where: { id: employeeId } });
-  if (!emp) throw new NotFoundError('Employee');
-  const [rows, holidayRows, leave, inPunches] = await Promise.all([
-    db.attendanceDay.findMany({
-      where: { employeeId, businessDate: { gte: toDbDate(from), lte: toDbDate(to) } },
-    }),
-    db.holiday.findMany({
-      where: {
-        date: { gte: toDbDate(from), lte: toDbDate(to) },
-        OR: [{ officeId: null }, { officeId: emp.officeId ?? '__none__' }],
-      },
-    }),
-    approvedLeaveDates(db, employeeId, from, to),
-    db.punch.findMany({
-      where: { employeeId, direction: 'IN', businessDate: { gte: toDbDate(from), lte: toDbDate(to) } },
-    }),
-  ]);
-  const byDate = new Map(rows.map((r) => [fromDbDate(r.businessDate), r]));
-  const holidayName = new Map(holidayRows.map((h) => [fromDbDate(h.date), h.name]));
-  const punchByDate = new Map(inPunches.map((p) => [fromDbDate(p.businessDate), p]));
-  const joined = fromDbDate(emp.joinedOn);
-  return eachDay(from, to).map((date): CalendarDay => {
-    const r = byDate.get(date);
-    const p = punchByDate.get(date);
-    return {
-      date,
-      status: displayStatus({
-        date,
-        today,
-        joinedOn: joined,
-        stored: (r?.status as DayStatusCode | undefined) ?? null,
-        isHoliday: holidayName.has(date),
-        onLeave: leave.has(date),
-      }),
-      firstIn: r?.firstIn ?? null,
-      lastOut: r?.lastOut ?? null,
-      hours: r?.hours ?? null,
-      inMethod: r?.inMethod ?? null,
-      outMethod: r?.outMethod ?? null,
-      officeId: r?.officeId ?? null,
-      remote: r?.remote ?? false,
-      flagged: r?.flagged ?? false,
-      holidayName: holidayName.get(date),
-      distanceM: p?.distanceM ?? null,
-      accuracyM: p?.accuracyM ?? null,
-      faceScore: p?.faceScore ?? null,
-    };
+  const emp = await db.employee.findUnique({
+    where: { id: employeeId },
+    select: { id: true, joinedOn: true, officeId: true },
   });
+  if (!emp) throw new NotFoundError('Employee');
+  return (await attendanceForMany([emp], from, to, today)).get(emp.id)!;
 }
 
 export async function attendanceMonth(employeeId: string, ym: string) {

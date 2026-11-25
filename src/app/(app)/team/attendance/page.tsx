@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/server/current-user';
 import { db } from '@/server/db';
-import { attendanceMonth } from '@/server/services/attendance';
-import { businessDate, fmtMonth, isValidMonth } from '@/lib/dates';
+import { attendanceForMany } from '@/server/services/attendance';
+import { businessDate, fmtMonth, isValidMonth, monthRange } from '@/lib/dates';
 import { AttendanceGrid } from '@/components/attendance-grid';
 import { Card, MonthNav, PageHead, Stack } from '@/components/ui';
 
@@ -21,9 +21,9 @@ export default async function TeamAttendance({
     where: { managerId: user.id, status: 'ACTIVE' },
     orderBy: { name: 'asc' },
   });
-  const rows = await Promise.all(
-    team.map(async (t) => ({ id: t.id, name: t.name, days: await attendanceMonth(t.id, ym) })),
-  );
+  const { from, to } = monthRange(ym);
+  const byId = await attendanceForMany(team, from, to);
+  const rows = team.map((t) => ({ id: t.id, name: t.name, days: byId.get(t.id)! }));
   return (
     <Stack>
       <PageHead

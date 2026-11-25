@@ -15,6 +15,7 @@ export interface PunchLike {
   direction: 'IN' | 'OUT';
   method: string;
   officeId: string | null;
+  zoneName?: string | null;
   flag: string | null;
 }
 
@@ -52,7 +53,12 @@ export function rebuildDay(punches: PunchLike[], ctx: DayContext): DayResult {
     inMethod: firstInP?.method ?? null,
     outMethod: lastOutP?.method ?? null,
     officeId: firstInP?.officeId ?? null,
-    remote: !!firstInP && !firstInP.officeId && ['GEO', 'FACE'].includes(firstInP.method) && !firstInP.flag,
+    remote:
+      !!firstInP &&
+      !firstInP.officeId &&
+      !firstInP.zoneName &&
+      ['GEO', 'FACE'].includes(firstInP.method) &&
+      !firstInP.flag,
     flagged: sorted.some((p) => p.flag === 'OUTSIDE_GEOFENCE'),
   };
 

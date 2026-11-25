@@ -1,88 +1,52 @@
 'use client';
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useActionState, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { CheckCircle2, ScanFace, ShieldCheck, Trash2 } from 'lucide-react';
 import { withdrawFaceAction } from '@/server/actions/profile';
-import { MAX_SAMPLES } from '@/lib/face';
 import { Status } from '../forms';
-import { analyse, cameraError, loadFaceApi, openCamera, stopCamera } from './face-client';
+import { FaceScanner } from './face-scanner';
 
 export function FaceConsentNotice() {
   return (
-    <div className="grid gap-2 rounded-lg border border-line bg-soft p-3 text-sm">
-      <strong>Before you enrol</strong>
-      <ul className="ml-4 list-disc space-y-1">
+    <div className="grid gap-2 rounded-2xl border border-line bg-surface-2 p-4 text-sm">
+      <strong className="flex items-center gap-2">
+        <ShieldCheck className="size-4 text-brand" /> Before you enrol
+      </strong>
+      <ul className="ml-4 list-disc space-y-1 text-muted">
         <li>
-          <b>What is stored:</b> up to 3 face templates, each a list of 128 numbers worked out on this device.
-          No photo is ever sent or kept.
+          <b className="text-ink">What is stored:</b> up to 3 face templates, each 128 numbers worked out on
+          this device. No photo is sent or kept.
         </li>
         <li>
-          <b>Why:</b> only to confirm it is you when you punch in or out with Face ID.
+          <b className="text-ink">Why:</b> only to confirm it is you when you punch with Face ID.
         </li>
         <li>
-          <b>Protection:</b> templates are encrypted in the database and are never exported, including to the
-          Google Sheets backup.
+          <b className="text-ink">Protection:</b> encrypted in the database, never exported (not even to the
+          Google Sheets backup).
         </li>
         <li>
-          <b>Retention:</b> kept while you use Face ID and deleted when you withdraw consent or leave the
-          company.
+          <b className="text-ink">Retention:</b> kept while you use Face ID; deleted when you withdraw consent
+          or leave.
         </li>
         <li>
-          <b>Your choice:</b> Face ID is optional. You can always punch with your location, the office kiosk
-          code or the web punch. Withdraw consent here at any time.
+          <b className="text-ink">Your choice:</b> optional. You can always punch with location, the office
+          code or the web punch.
         </li>
       </ul>
     </div>
   );
 }
 
+type Phase = 'idle' | 'consent' | 'scan' | 'saving' | 'test';
+
 export function FaceEnrol({ consentVersion, enrolled }: { consentVersion: string; enrolled: boolean }) {
   const router = useRouter();
-  const video = useRef<HTMLVideoElement>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const [phase, setPhase] = useState<'idle' | 'consent' | 'camera' | 'saving'>('idle');
+  const [phase, setPhase] = useState<Phase>('idle');
   const [agree, setAgree] = useState(false);
-  const [samples, setSamples] = useState<number[][]>([]);
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [withdrawState, withdraw] = useActionState(withdrawFaceAction, null);
 
-  useEffect(() => () => stopCamera(stream.current), []);
-
-  async function startCamera() {
-    setErr('');
-    setPhase('camera');
-    try {
-      await Promise.all([
-        loadFaceApi(setMsg),
-        (async () => {
-          stream.current = await openCamera(video.current!);
-        })(),
-      ]);
-      setMsg('Look straight at the camera, then capture.');
-    } catch (e) {
-      setErr(cameraError(e));
-      setPhase('consent');
-    }
-  }
-
-  async function capture() {
-    if (!video.current) return;
-    setBusy(true);
-    setErr('');
-    const r = await analyse(video.current);
-    setBusy(false);
-    if (!r.ok) return setErr(r.reason);
-    const next = [...samples, r.descriptor];
-    setSamples(next);
-    setMsg(
-      next.length < MAX_SAMPLES
-        ? `Sample ${next.length} captured. Turn your head slightly and capture another, or save now.`
-        : 'All samples captured. Save to finish.',
-    );
-  }
-
-  async function save() {
+  async function save(samples: number[][]) {
     setPhase('saving');
     const res = await fetch('/api/face/enrol', {
       method: 'POST',
@@ -90,44 +54,45 @@ export function FaceEnrol({ consentVersion, enrolled }: { consentVersion: string
       body: JSON.stringify({ samples, consentVersion }),
     });
     const j = (await res.json()) as { error?: string };
-    stopCamera(stream.current);
-    if (!res.ok) {
-      setErr(j.error ?? 'Could not save.');
-      setPhase('camera');
-      return;
-    }
     setPhase('idle');
-    setSamples([]);
-    setMsg('Face ID saved. You can now punch with Face ID.');
+    if (!res.ok) return setMsg({ ok: false, text: j.error ?? 'Could not save. Please try again.' });
+    setMsg({ ok: true, text: 'Face ID is ready. Use “Test my Face ID” to check it.' });
     router.refresh();
   }
 
-  if (phase === 'idle') {
-    return (
-      <div className="grid gap-3">
-        {!enrolled ? <p>Enrol once to check in with your face from the Punch page.</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <button className="btn" type="button" onClick={() => setPhase('consent')}>
-            {enrolled ? 'Re-enrol' : 'Enrol my face'}
-          </button>
-          {enrolled ? (
-            <form
-              action={withdraw}
-              onSubmit={(e) => {
-                if (!confirm('Withdraw consent and delete your face template?')) e.preventDefault();
-              }}
-            >
-              <button className="btn btn-danger" type="submit">
-                Withdraw consent
-              </button>
-            </form>
-          ) : null}
-        </div>
-        {msg ? <p className="text-sm text-good">{msg}</p> : null}
-        <Status state={withdrawState} />
-      </div>
-    );
+  async function test(descriptor: number[]) {
+    setPhase('idle');
+    const res = await fetch('/api/face/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ descriptor }),
+    });
+    const j = (await res.json()) as { error?: string; distance?: number; threshold?: number };
+    if (!res.ok) return setMsg({ ok: false, text: j.error ?? 'That did not match.' });
+    const strength = Math.round((1 - (j.distance ?? 0) / (j.threshold ?? 0.5)) * 100);
+    setMsg({
+      ok: true,
+      text: `It’s you. Match strength ${Math.max(1, strength)}% (distance ${j.distance} ≤ ${j.threshold}).`,
+    });
   }
+
+  if (phase === 'scan')
+    return (
+      <FaceScanner
+        mode="enrol"
+        onDone={(r) => 'samples' in r && save(r.samples)}
+        onCancel={() => setPhase('idle')}
+      />
+    );
+  if (phase === 'test')
+    return (
+      <FaceScanner
+        mode="punch"
+        onDone={(r) => 'descriptor' in r && test(r.descriptor)}
+        onCancel={() => setPhase('idle')}
+      />
+    );
+
   return (
     <div className="grid gap-3">
       {phase === 'consent' ? (
@@ -138,59 +103,64 @@ export function FaceEnrol({ consentVersion, enrolled }: { consentVersion: string
             this and agree to Face ID enrolment.
           </label>
           <div className="flex gap-2">
-            <button className="btn" type="button" disabled={!agree} onClick={startCamera}>
-              Open camera
+            <button className="btn" type="button" disabled={!agree} onClick={() => setPhase('scan')}>
+              <ScanFace className="size-4" /> Start
             </button>
             <button className="btn btn-ghost" type="button" onClick={() => setPhase('idle')}>
               Cancel
             </button>
           </div>
+          <p className="text-xs text-muted">
+            Tip: face a window or a light, take off sunglasses or a mask, and keep only your face in view. It
+            captures automatically.
+          </p>
         </>
-      ) : null}
-      <div className={phase === 'camera' || phase === 'saving' ? 'grid gap-3' : 'hidden'}>
-        <div className="aspect-[4/3] max-w-[420px] overflow-hidden rounded-lg bg-[#0c1512]">
-          <video ref={video} playsInline muted className="size-full -scale-x-100 object-cover" />
-        </div>
-        <p className="text-sm text-muted" aria-live="polite">
-          {msg}
+      ) : (
+        <>
+          {!enrolled ? (
+            <p className="text-sm text-muted">
+              Enrol once (about 10 seconds), then check in with your face from the Punch page.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn"
+              type="button"
+              onClick={() => setPhase('consent')}
+              disabled={phase === 'saving'}
+            >
+              <ScanFace className="size-4" />{' '}
+              {phase === 'saving' ? 'Saving…' : enrolled ? 'Re-enrol' : 'Enrol my face'}
+            </button>
+            {enrolled ? (
+              <>
+                <button className="btn btn-ghost" type="button" onClick={() => setPhase('test')}>
+                  <CheckCircle2 className="size-4" /> Test my Face ID
+                </button>
+                <form
+                  action={withdraw}
+                  onSubmit={(e) => {
+                    if (!confirm('Withdraw consent and delete your face template?')) e.preventDefault();
+                  }}
+                >
+                  <button className="btn btn-danger" type="submit">
+                    <Trash2 className="size-4" /> Withdraw consent
+                  </button>
+                </form>
+              </>
+            ) : null}
+          </div>
+        </>
+      )}
+      {msg ? (
+        <p
+          role={msg.ok ? 'status' : 'alert'}
+          className={`anim-rise text-sm ${msg.ok ? 'text-good' : 'text-bad'}`}
+        >
+          {msg.text}
         </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="btn"
-            type="button"
-            onClick={capture}
-            disabled={busy || samples.length >= MAX_SAMPLES || phase === 'saving'}
-          >
-            {busy
-              ? 'Checking…'
-              : `Capture sample ${Math.min(samples.length + 1, MAX_SAMPLES)} of ${MAX_SAMPLES}`}
-          </button>
-          <button
-            className="btn btn-ghost"
-            type="button"
-            onClick={save}
-            disabled={!samples.length || phase === 'saving'}
-          >
-            {phase === 'saving' ? 'Saving…' : `Save ${samples.length} sample(s)`}
-          </button>
-          <button
-            className="btn btn-ghost"
-            type="button"
-            onClick={() => {
-              stopCamera(stream.current);
-              setSamples([]);
-              setPhase('idle');
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-      {err ? (
-        <p role="alert" className="text-sm text-bad">
-          {err}
-        </p>
       ) : null}
+      <Status state={withdrawState} />
     </div>
   );
 }

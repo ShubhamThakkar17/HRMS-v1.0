@@ -5,12 +5,13 @@ import { METHOD_LABEL } from '@/lib/attendance-rules';
 import { DayPill, Pill, Table } from './ui';
 
 export function whereLabel(
-  d: Pick<CalendarDay, 'officeId' | 'remote' | 'flagged' | 'distanceM' | 'inMethod'>,
+  d: Pick<CalendarDay, 'officeId' | 'remote' | 'flagged' | 'distanceM' | 'inMethod' | 'zoneName'>,
   offices: Map<string, string>,
 ) {
   if (!d.inMethod) return null;
   if (d.officeId)
     return `${offices.get(d.officeId) ?? 'Office'}${d.distanceM ? ` · ${fmtDistance(d.distanceM)}` : ''}`;
+  if (d.zoneName) return `${d.zoneName}${d.distanceM ? ` · ${fmtDistance(d.distanceM)}` : ''}`;
   if (d.inMethod === 'WEB') return 'No location';
   if (d.inMethod === 'HR' || d.inMethod === 'REGULARISED') return 'Not recorded';
   return `${d.flagged ? 'Outside office' : 'Remote'}${d.distanceM != null ? ` · ${fmtDistance(d.distanceM)} from office` : ''}`;

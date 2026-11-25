@@ -9,7 +9,7 @@ It is the full build of the clickable prototype described in [`docs/HRMS_prototy
 
 ## Stack
 
-Next.js 15 (App Router, TypeScript strict) · PostgreSQL + Prisma · Auth.js (Google Workspace + email one-time code) · Tailwind CSS 4 ·
+Next.js 15 (App Router, TypeScript strict) · PostgreSQL + Prisma (node-postgres driver adapter, no native engine) · Auth.js (Google Workspace + email one-time code) · Tailwind CSS 4 ·
 Zod · Vitest · Playwright · face-api (on-device face recognition) · installable PWA.
 
 ## Quick start (local)
@@ -71,6 +71,30 @@ scripts/restore-drill.sh           # back up, restore to a scratch DB, compare e
 | Sheets backup + audit       | `/admin/sync`, `/admin/audit`                                                                                       | `services/sheets.ts`, `services/audit.ts`                                                   |
 | Privacy                     | `/privacy`, `/profile` (data export, withdraw consent)                                                              | `services/privacy.ts`                                                                       |
 
+## Per-employee punch areas (geofencing)
+
+Open an employee under **Employee records** → **Punch area**:
+
+| Rule | Allowed |
+| --- | --- |
+| Any office (default) | Inside any office geofence |
+| Their own office only | Only inside their assigned office |
+| Any office or their own zones | Offices plus their custom zones (client sites, a home office) |
+| Their own zones only | Only their custom zones (field staff with a territory) |
+| Anywhere | No geofence; location is still recorded |
+
+Add a zone by pasting a Google Maps link, typing `lat, lng`, or tapping "use my current location", then pick a radius
+(50 m – 3 km) and check the map preview. **Block punches outside these areas** refuses outside punches instead of
+recording and flagging them. Rules live in `src/lib/geo.ts` (unit-tested in `tests/unit/geo.test.ts`).
+
+## Face ID
+
+Everything runs on the phone (face-api): models download once and are cached by the service worker. Enrolment captures
+three samples automatically with on-screen guidance and checks they match each other. Punching needs a framed face, a
+small head turn to either side and back (liveness, measured against the person's starting pose), then a frontal
+capture; GPS is fetched in parallel. "Test my Face ID" on My profile checks a match without punching. Failed matches
+are limited to 5 per 10 minutes.
+
 ## Rules the code enforces
 
 - Every server action and API route checks permission through `requirePermission()` (or `canDecide()` for approvals); hidden buttons are never the only guard.
@@ -99,7 +123,10 @@ scripts/restore-drill.sh           # back up, restore to a scratch DB, compare e
 4. Google sign-in: create an OAuth client (Web), add `https://<domain>/api/auth/callback/google`, set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `AUTH_GOOGLE_HD` (your Workspace domain).
 5. Email codes: set `RESEND_API_KEY` and `EMAIL_FROM` (verified sender domain).
 6. Receipts: set `STORAGE_DRIVER=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and create a **private** bucket `receipts`.
-7. Sheets backup: create a Google Cloud service account with the Sheets API enabled, set `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY`, and share the sheet with that email as an editor.
+7. Sheets backup, easiest way: in the sheet, Extensions → Apps Script, paste `docs/google-sheets-apps-script.gs` with a
+   shared secret, deploy as a Web app (execute as you, access: anyone), and set `GOOGLE_SHEETS_WEBHOOK_URL` and
+   `GOOGLE_SHEETS_WEBHOOK_SECRET`. Alternative: a service account (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`)
+   shared on the sheet as an editor.
 8. Run `npx prisma migrate deploy` against production, then import real employees from `/admin/import` (or seed a pilot).
 
 ## Status against the build plan

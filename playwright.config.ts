@@ -12,6 +12,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   timeout: 60_000,
+  expect: { timeout: 15_000 },
   use: {
     baseURL: `http://localhost:${port}`,
     trace: 'off',
@@ -34,6 +35,7 @@ export default defineConfig({
       APP_ENCRYPTION_KEY: process.env.APP_ENCRYPTION_KEY ?? Buffer.alloc(32, 9).toString('base64'),
       CRON_SECRET: 'e2e-cron-secret',
       STORAGE_DRIVER: process.env.E2E_STORAGE_DRIVER ?? 'local',
+      DB_POOL_MAX: process.env.DB_POOL_MAX ?? '5',
     },
   },
 });

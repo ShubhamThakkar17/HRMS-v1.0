@@ -9,6 +9,8 @@ import { formatINR } from '@/lib/money';
 import { EmployeeForm } from '@/components/employee-form';
 import { ActionButton, ActionForm, Submit } from '@/components/forms';
 import { AuditDetail } from '@/components/audit-detail';
+import { GeofenceEditor } from '@/components/geofence-editor';
+import { MapPinned } from 'lucide-react';
 import { Card, Facts, PageHead, Stack, StatusPill, Table, Two } from '@/components/ui';
 
 export const metadata = { title: 'Employee' };
@@ -20,6 +22,7 @@ export default async function EmployeePage({ params }: { params: Promise<{ id: s
   const e = await db.employee.findUnique({
     where: { id },
     include: {
+      zones: { orderBy: { createdAt: 'asc' } },
       manager: true,
       office: true,
       roles: { include: { role: true } },
@@ -109,6 +112,20 @@ export default async function EmployeePage({ params }: { params: Promise<{ id: s
           />
         </Card>
       )}
+      <Card
+        title="Punch area"
+        icon={<MapPinned />}
+        sub="Where this person may punch in and out with location or Face ID"
+      >
+        <GeofenceEditor
+          employeeId={e.id}
+          rule={e.geoRule}
+          strict={e.geoStrict}
+          zones={e.zones.map((z) => ({ id: z.id, name: z.name, lat: z.lat, lng: z.lng, radiusM: z.radiusM }))}
+          workMode={e.workMode}
+          canEdit={canEdit}
+        />
+      </Card>
       <Two>
         <Card title="Roles">
           {canRoles ? (

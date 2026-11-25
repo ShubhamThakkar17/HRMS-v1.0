@@ -17,9 +17,9 @@ test('employee applies for leave, manager approves, balance drops', async ({ pag
 
   await login(page, 'rohan');
   await page.goto('/approvals');
-  const row = page.locator('tr', { hasText: 'Doctor visit' });
+  const row = page.locator('article', { hasText: 'Doctor visit' });
   await row.getByRole('button', { name: 'Approve' }).click();
-  await expect(page.locator('tr', { hasText: 'Doctor visit' })).toHaveCount(0);
+  await expect(page.locator('article', { hasText: 'Doctor visit' })).toHaveCount(0);
   await logout(page);
 
   await login(page, 'ananya');
@@ -30,20 +30,21 @@ test('employee applies for leave, manager approves, balance drops', async ({ pag
 test('rejecting needs a reason', async ({ page }) => {
   await login(page, 'rohan');
   await page.goto('/approvals');
-  const row = page.locator('tr', { hasText: 'Team lunch on shoot day' });
+  const row = page.locator('article', { hasText: 'Team lunch on shoot day' });
   await row.getByRole('button', { name: 'Reject' }).click();
   await row.getByLabel('Reason for rejecting').fill('Please attach the bill');
   await row.getByRole('button', { name: 'Reject' }).click();
-  await expect(page.locator('tr', { hasText: 'Team lunch on shoot day' })).toHaveCount(0);
+  await expect(page.locator('article', { hasText: 'Team lunch on shoot day' })).toHaveCount(0);
 });
 
 test('quick web punch checks in and then out', async ({ page }) => {
   await login(page, 'divya');
   await page.goto('/punch');
-  await page.getByRole('button', { name: 'Check in on the web' }).click();
-  await expect(page.getByText(/Checked in at \d\d:\d\d, without location/)).toBeVisible();
-  await page.waitForTimeout(500);
-  await expect(page.getByRole('button', { name: 'Check out on the web' })).toBeVisible();
+  await page.getByRole('button', { name: /^Web/ }).click();
+  await page.getByRole('button', { name: 'Check in with Web' }).click();
+  await expect(page.getByText(/Checked in at \d\d:\d\d from the web/)).toBeVisible();
+  // The chosen method is remembered; the button now offers check-out.
+  await expect(page.getByRole('button', { name: 'Check out with Web' })).toBeVisible({ timeout: 10_000 });
 });
 
 test('location punch far from the office is flagged for the manager', async ({ browser }) => {
@@ -54,15 +55,16 @@ test('location punch far from the office is flagged for the manager', async ({ b
   const page = await ctx.newPage();
   await login(page, 'ananya');
   await page.goto('/punch');
-  await page.getByText('Location notice.').click();
-  await page.getByRole('button', { name: 'Check in with location' }).click();
-  await expect(page.getByText(/outside the office \(flagged for your manager\)/)).toBeVisible();
+  await page.getByRole('button', { name: /^Location/ }).click();
+  await page.getByRole('button', { name: 'Check in with Location' }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
+  await expect(page.getByText(/outside your work area \(your manager will see it\)/)).toBeVisible();
   await ctx.close();
 
   const m = await browser.newPage();
   await login(m, 'rohan');
   await m.goto('/team');
-  const flagged = m.locator('section', { hasText: 'Punches outside the office geofence' });
+  const flagged = m.locator('section', { hasText: 'Outside the work area' });
   await expect(flagged.getByText('Ananya Iyer')).toBeVisible();
   await m.close();
 });
@@ -75,9 +77,10 @@ test('inaccurate GPS readings are rejected', async ({ browser }) => {
   const page = await ctx.newPage();
   await login(page, 'harsh');
   await page.goto('/punch');
-  await page.getByText('Location notice.').click();
-  await page.getByRole('button', { name: 'Check in with location' }).click();
-  await expect(page.getByText(/only accurate to 400 m/)).toBeVisible();
+  await page.getByRole('button', { name: /^Location/ }).click();
+  await page.getByRole('button', { name: 'Check in with Location' }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
+  await expect(page.getByText(/only accurate to 400 m/)).toBeVisible({ timeout: 25_000 });
   await ctx.close();
 });
 
@@ -96,12 +99,15 @@ test('office kiosk code punches the employee in at the office', async ({ browser
   const p = await browser.newPage();
   await login(p, 'harsh');
   await p.goto('/punch');
+  await p.getByRole('button', { name: /^Office code/ }).click();
+  await p.getByRole('button', { name: 'Check in with Office code' }).click();
   await p.getByLabel('Office code').fill('000000' === code ? '111111' : '000000');
   await p.getByRole('button', { name: 'Check in', exact: true }).click();
   await expect(p.getByText(/expired or is not valid/)).toBeVisible();
+  await p.getByRole('button', { name: 'Check in with Office code' }).click();
   await p.getByLabel('Office code').fill(code);
   await p.getByRole('button', { name: 'Check in', exact: true }).click();
-  await expect(p.getByText(/Checked in at \d\d:\d\d, at the office/)).toBeVisible();
+  await expect(p.getByText(/Checked in at \d\d:\d\d at the office/)).toBeVisible();
 
   // Revoking stops the code at once.
   await admin.reload();
@@ -116,14 +122,15 @@ test('approved correction turns an absent day present', async ({ page }) => {
   await login(page, 'rohan');
   await page.goto('/approvals');
   await page
-    .locator('tr', { hasText: 'Forgot to punch out' })
+    .locator('article', { hasText: 'Forgot to punch out' })
     .getByRole('button', { name: 'Approve' })
     .click();
-  await expect(page.locator('tr', { hasText: 'Forgot to punch out' })).toHaveCount(0);
+  await expect(page.locator('article', { hasText: 'Forgot to punch out' })).toHaveCount(0);
   await logout(page);
   await login(page, 'kunal');
   await page.goto('/my/attendance');
   await expect(page.locator('tr', { hasText: 'Forgot to punch out' }).getByText('Approved')).toBeVisible();
+  await page.getByText('Day-by-day details').click();
   await expect(page.locator('td', { hasText: 'Approved correction' }).first()).toBeVisible();
 });
 
@@ -155,15 +162,10 @@ test('expense claim with receipt: submit, approve, reimburse, export', async ({ 
 
   await login(page, 'rohan');
   await page.goto('/approvals');
-  const viewHref = await page
-    .locator('tr', { hasText: 'Cab to shoot location' })
-    .getByRole('link', { name: 'View receipt' })
-    .getAttribute('href');
-  await page
-    .locator('tr', { hasText: 'Cab to shoot location' })
-    .getByRole('button', { name: 'Approve' })
-    .click();
-  await expect(page.locator('tr', { hasText: 'Cab to shoot location' })).toHaveCount(0);
+  const card = page.locator('article', { hasText: 'Cab to shoot location' });
+  const viewHref = await card.getByRole('link', { name: 'View receipt' }).getAttribute('href');
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect(page.locator('article', { hasText: 'Cab to shoot location' })).toHaveCount(0);
   await logout(page);
 
   // Someone outside the claimant's chain cannot see the receipt.
@@ -233,7 +235,7 @@ test('HR correction is recorded with method HR and in the audit log', async ({ p
 test('directors see the dashboard and payroll preview; payslips print', async ({ page }) => {
   await login(page, 'meera');
   await page.goto('/leadership/dashboard');
-  await expect(page.getByText('Attendance rate, last 15 working days')).toBeVisible();
+  await expect(page.getByText('Last 15 working days')).toBeVisible();
   await expect(page.getByText('Headcount', { exact: true })).toBeVisible();
   await page.goto('/finance/payroll');
   await expect(page.getByText('Preview only.').first()).toBeVisible();
@@ -247,4 +249,37 @@ test('employee downloads their own data', async ({ page }) => {
   const j = (await r.json()) as { profile: { code: string }; faceTemplate: unknown };
   expect(j.profile.code).toBe('E010');
   expect(j.faceTemplate).toBeNull();
+});
+
+test('HR sets a custom punch zone and the employee can punch there', async ({ browser }) => {
+  const hr = await browser.newPage();
+  await login(hr, 'priya');
+  await hr.goto('/hr/employees');
+  await hr.getByRole('link', { name: 'Kunal Joshi' }).click();
+  const area = hr.locator('section', { hasText: 'Punch area' });
+  await area.getByLabel('Name').fill('Print vendor, Naroda');
+  await area
+    .getByLabel('Google Maps link, or latitude, longitude')
+    .fill('https://maps.google.com/?q=23.0700,72.6100');
+  await area.getByRole('button', { name: 'Add zone' }).click();
+  await expect(area.getByText('Zone added.')).toBeVisible();
+  await area.getByText('Any office or their own zones').click();
+  await area.getByRole('button', { name: 'Save punch area' }).click();
+  await expect(area.getByText('Punch area saved.')).toBeVisible();
+  await hr.close();
+
+  const ctx = await browser.newContext({
+    geolocation: { latitude: 23.0701, longitude: 72.6101, accuracy: 15 },
+    permissions: ['geolocation'],
+  });
+  const page = await ctx.newPage();
+  await login(page, 'kunal');
+  await page.goto('/punch');
+  await expect(page.getByText('Print vendor, Naroda')).toBeVisible();
+  await page.getByRole('button', { name: /^Location/ }).click();
+  // Kunal already checked in today in the sample data, so this is a check-out.
+  await page.getByRole('button', { name: /^Check (in|out) with Location$/ }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
+  await expect(page.getByText(/Checked (in|out) at \d\d:\d\d at Print vendor, Naroda/)).toBeVisible();
+  await ctx.close();
 });

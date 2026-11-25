@@ -336,3 +336,93 @@ describe('encryption keys', () => {
     expect(decryptString(encryptString('hello'))).toBe('hello');
   });
 });
+
+describe('per-employee geofencing', () => {
+  const site = { name: 'Client site', lat: 23.2156, lng: 72.6369, radiusM: 300 };
+  const atSite = { lat: 23.2158, lng: 72.637, accuracyM: 15 };
+  const farAway = { lat: 23.0675, lng: 72.5714, accuracyM: 20 };
+
+  it('only emp.edit can change it, and zones-only needs a zone', async () => {
+    const { setGeoPolicy, addGeoZone } = await import('@/server/services/geofence');
+    await expect(setGeoPolicy(await asUser(c.M.id), c.A.id, 'ANYWHERE', false)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    const hr = await asUser(c.H.id);
+    await expect(setGeoPolicy(hr, c.A.id, 'ZONES_ONLY', true)).rejects.toThrow(/at least one zone/);
+    await addGeoZone(hr, c.A.id, site);
+    await setGeoPolicy(hr, c.A.id, 'ZONES_ONLY', true);
+    const e = await db.employee.findUniqueOrThrow({ where: { id: c.A.id } });
+    expect(e).toMatchObject({ geoRule: 'ZONES_ONLY', geoStrict: true });
+    expect(await db.auditLog.count({ where: { action: { startsWith: 'geofence.' } } })).toBe(2);
+  });
+
+  it('a punch inside a custom zone is recorded with the zone name, not as remote', async () => {
+    const { setGeoPolicy, addGeoZone } = await import('@/server/services/geofence');
+    const { handlePunch } = await import('@/server/services/punch');
+    const hr = await asUser(c.H.id);
+    await addGeoZone(hr, c.A.id, site);
+    await setGeoPolicy(hr, c.A.id, 'OFFICES_AND_ZONES', false);
+    const r = await handlePunch(await asUser(c.A.id), {
+      method: 'GEO',
+      location: atSite,
+      locationConsent: true,
+    });
+    expect(r.punch).toMatchObject({ zoneName: 'Client site', officeId: null, flag: null });
+    expect(r.day?.remote).toBe(false);
+  });
+
+  it('strict refuses punches outside; not strict flags office staff', async () => {
+    const { setGeoPolicy } = await import('@/server/services/geofence');
+    const { handlePunch } = await import('@/server/services/punch');
+    const hr = await asUser(c.H.id);
+    await setGeoPolicy(hr, c.A.id, 'ASSIGNED_OFFICE', true);
+    await expect(
+      handlePunch(await asUser(c.A.id), { method: 'GEO', location: farAway, locationConsent: true }),
+    ).rejects.toThrow(/only allowed inside/);
+    await setGeoPolicy(hr, c.A.id, 'ASSIGNED_OFFICE', false);
+    const r = await handlePunch(await asUser(c.A.id), {
+      method: 'GEO',
+      location: farAway,
+      locationConsent: true,
+    });
+    expect(r.punch.flag).toBe('OUTSIDE_GEOFENCE');
+  });
+});
+
+describe('Google Sheets backup through the Apps Script receiver', () => {
+  it('posts every tab with the secret and records per-tab results', async () => {
+    const http = await import('node:http');
+    let received: { secret: string; tabs: { name: string; values: unknown[][] }[] } | null = null;
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        received = JSON.parse(body);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            ok: true,
+            results: received!.tabs.map((t) => ({ tab: t.name, ok: true, rows: t.values.length - 1 })),
+          }),
+        );
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as { port: number }).port;
+    process.env.GOOGLE_SHEETS_WEBHOOK_URL = `http://127.0.0.1:${port}/exec`;
+    process.env.GOOGLE_SHEETS_WEBHOOK_SECRET = 'test-secret';
+    try {
+      const { syncToSheets } = await import('@/server/services/sheets');
+      const results = await syncToSheets(await asUser(c.H.id));
+      expect(received!.secret).toBe('test-secret');
+      expect(received!.tabs.map((t) => t.name)).toContain('Employees');
+      expect(JSON.stringify(received)).not.toMatch(/samples|secret":"(?!test-secret)/);
+      expect(results.find((r) => r.tab === 'Employees')).toMatchObject({ ok: true, rows: 7 });
+      await expect(syncToSheets(await asUser(c.M.id))).rejects.toBeInstanceOf(ForbiddenError);
+    } finally {
+      delete process.env.GOOGLE_SHEETS_WEBHOOK_URL;
+      delete process.env.GOOGLE_SHEETS_WEBHOOK_SECRET;
+      server.close();
+    }
+  });
+});

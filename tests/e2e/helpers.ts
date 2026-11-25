@@ -13,7 +13,9 @@ export async function logout(page: Page) {
 }
 
 export async function navLabels(page: Page) {
-  return (await page.locator('nav a').allTextContents()).map((t) => t.replace(/\d+$/, '').trim());
+  return (await page.locator('nav[aria-label="Main sections"] a').allTextContents()).map((t) =>
+    t.replace(/\d+$/, '').trim(),
+  );
 }
 
 /** IST business date n days from today, moved forward to a weekday. */

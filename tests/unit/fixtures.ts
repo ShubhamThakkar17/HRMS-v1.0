@@ -1,9 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '@/server/prisma-client';
 import { getPermissions, type CurrentUser } from '@/server/rbac';
 import { DEFAULT_ROLES, ROLE_ORDER } from '@/lib/permissions';
 import { toDbDate } from '@/lib/dates';
 
-export const db = new PrismaClient();
+export const db = createPrismaClient();
 
 const TABLES = [
   'AuditLog',

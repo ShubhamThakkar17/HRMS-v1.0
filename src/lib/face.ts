@@ -59,12 +59,68 @@ export function yawFromLandmarks(points: Point[]): number | null {
   return (nose.x - mid) / eyeDist;
 }
 
-export const LIVENESS_YAW = 0.12;
+export const LIVENESS_TURN = 0.1;
+export const LIVENESS_BACK = 0.06;
 
-/** Liveness passes when the sequence shows a clear turn to one side and then the other. */
-export function livenessPassed(yaws: number[], minTurn = LIVENESS_YAW): boolean {
-  const firstLeft = yaws.findIndex((y) => y <= -minTurn);
-  const firstRight = yaws.findIndex((y) => y >= minTurn);
-  if (firstLeft === -1 || firstRight === -1) return false;
+function median(xs: number[]): number {
+  const a = [...xs].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m]! : (a[m - 1]! + a[m]!) / 2;
+}
+
+/**
+ * Liveness from a sequence of head-turn estimates: the head must turn away from its starting
+ * position (either side) and come back. Measured against the person's own starting pose, so a
+ * slightly angled camera or face does not matter.
+ */
+export function headTurnLiveness(
+  yaws: number[],
+  opts: { turn?: number; back?: number } = {},
+): { passed: boolean; turned: boolean; baseline: number | null } {
+  const turn = opts.turn ?? LIVENESS_TURN;
+  const back = opts.back ?? LIVENESS_BACK;
+  if (yaws.length < 3) return { passed: false, turned: false, baseline: null };
+  const baseline = median(yaws.slice(0, 3));
+  const i = yaws.findIndex((y, k) => k >= 3 && Math.abs(y - baseline) >= turn);
+  if (i === -1) return { passed: false, turned: false, baseline };
+  const returned = yaws.slice(i + 1).some((y) => Math.abs(y - baseline) <= back);
+  return { passed: returned, turned: true, baseline };
+}
+
+/** @deprecated kept for older callers: true once the head has turned and come back. */
+export function livenessPassed(yaws: number[]): boolean {
+  return headTurnLiveness(yaws).passed;
+}
+
+export interface Framing {
+  faces: number;
+  /** Face box relative to the frame, 0–1. */
+  box?: { x: number; y: number; width: number; height: number };
+  /** Average luminance of the frame, 0–255. */
+  brightness?: number;
+  score?: number;
+}
+
+/** What to tell the person before a capture, or null when the frame is good. */
+export function framingAdvice(f: Framing): string | null {
+  if (f.brightness !== undefined && f.brightness < 55)
+    return 'It is too dark. Face a window or turn on a light.';
+  if (f.faces === 0 || !f.box) return 'Fit your face inside the oval';
+  if (f.faces > 1) return 'Only one face, please';
+  if (f.box.width < 0.24) return 'Move a little closer';
+  if (f.box.width > 0.75) return 'Move back a little';
+  const cx = f.box.x + f.box.width / 2;
+  const cy = f.box.y + f.box.height / 2;
+  if (Math.abs(cx - 0.5) > 0.17 || Math.abs(cy - 0.48) > 0.2) return 'Centre your face in the oval';
+  if (f.score !== undefined && f.score < 0.55) return 'Hold still';
+  return null;
+}
+
+/** Enrolment samples should all be the same person: no two further apart than this. */
+export function samplesConsistent(samples: number[][], maxDistance = 0.55): boolean {
+  for (let i = 0; i < samples.length; i++) {
+    for (let j = i + 1; j < samples.length; j++)
+      if (euclidean(samples[i]!, samples[j]!) > maxDistance) return false;
+  }
   return true;
 }

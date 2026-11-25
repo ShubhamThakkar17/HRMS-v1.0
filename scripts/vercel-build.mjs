@@ -2,7 +2,7 @@
 // Encryption keys may be any 32+ character secret (see src/server/crypto.ts).
 // Uses the direct (unpooled) connection for migrations when the Neon integration provides one.
 import { execSync } from 'node:child_process';
-import { PrismaClient } from '@prisma/client';
+import pg from 'pg';
 
 const direct = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
 if (!direct) {
@@ -13,13 +13,16 @@ const env = { ...process.env, DATABASE_URL: direct };
 execSync('npx prisma migrate deploy', { stdio: 'inherit', env });
 
 if (process.env.SEED_DEMO === 'true') {
-  const db = new PrismaClient({ datasourceUrl: direct });
-  const count = await db.employee.count();
-  await db.$disconnect();
-  if (count === 0) {
+  const url = new URL(direct);
+  url.searchParams.delete('schema');
+  const client = new pg.Client({ connectionString: url.toString() });
+  await client.connect();
+  const { rows } = await client.query('SELECT count(*)::int AS n FROM "Employee"');
+  await client.end();
+  if (rows[0].n === 0) {
     console.log('Empty database and SEED_DEMO=true: loading the sample company.');
     execSync('npx prisma db seed', { stdio: 'inherit', env });
   } else {
-    console.log(`Database already has ${count} employees; not seeding.`);
+    console.log(`Database already has ${rows[0].n} employees; not seeding.`);
   }
 }

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { bestDistance, euclidean, isDescriptor, isMatch, livenessPassed, yawFromLandmarks } from '@/lib/face';
+import {
+  bestDistance,
+  euclidean,
+  framingAdvice,
+  headTurnLiveness,
+  isDescriptor,
+  isMatch,
+  samplesConsistent,
+  yawFromLandmarks,
+} from '@/lib/face';
 
 const vec = (v: number) => Array.from({ length: 128 }, () => v);
 
@@ -36,9 +45,41 @@ describe('liveness (head turn)', () => {
     expect(yawFromLandmarks(face(130))).toBeCloseTo(-0.2);
     expect(yawFromLandmarks([])).toBeNull();
   });
-  it('passes only when the head turns to both sides', () => {
-    expect(livenessPassed([0, -0.2, 0, 0.2])).toBe(true);
-    expect(livenessPassed([0, -0.2, -0.25, 0])).toBe(false);
-    expect(livenessPassed([0, 0.05, -0.05])).toBe(false);
+  it('passes on a turn to either side and back', () => {
+    expect(headTurnLiveness([0, 0.01, 0, 0.05, 0.14, 0.08, 0.02]).passed).toBe(true);
+    expect(headTurnLiveness([0, 0, 0, -0.15, -0.05]).passed).toBe(true);
+  });
+  it('is measured against the starting pose, not the camera', () => {
+    // Someone sitting at an angle: baseline 0.2, turn to 0.33 and back.
+    expect(headTurnLiveness([0.2, 0.21, 0.19, 0.33, 0.22]).passed).toBe(true);
+    expect(headTurnLiveness([0.2, 0.21, 0.19, 0.25, 0.22]).turned).toBe(false);
+  });
+  it('fails a still photo or a head that never comes back', () => {
+    expect(headTurnLiveness([0, 0.01, 0, 0.02, 0.01, 0]).passed).toBe(false);
+    expect(headTurnLiveness([0, 0, 0, 0.15, 0.16, 0.17])).toMatchObject({ passed: false, turned: true });
+    expect(headTurnLiveness([0, 0.2]).passed).toBe(false);
+  });
+});
+
+describe('framing advice', () => {
+  const box = { x: 0.32, y: 0.25, width: 0.36, height: 0.45 };
+  it('accepts a well-framed, well-lit face', () => {
+    expect(framingAdvice({ faces: 1, box, brightness: 120, score: 0.9 })).toBeNull();
+  });
+  it('guides distance, centring, light and extra faces', () => {
+    expect(framingAdvice({ faces: 0 })).toMatch(/oval/);
+    expect(framingAdvice({ faces: 2, box })).toMatch(/one face/);
+    expect(framingAdvice({ faces: 1, box: { ...box, width: 0.15 } })).toMatch(/closer/);
+    expect(framingAdvice({ faces: 1, box: { ...box, width: 0.8, x: 0.1 } })).toMatch(/back/);
+    expect(framingAdvice({ faces: 1, box: { ...box, x: 0.6 } })).toMatch(/Centre/);
+    expect(framingAdvice({ faces: 1, box, brightness: 30 })).toMatch(/dark/);
+  });
+});
+
+describe('enrolment samples', () => {
+  const vec = (v: number) => Array.from({ length: 128 }, () => v);
+  it('must look like the same person', () => {
+    expect(samplesConsistent([vec(0.1), vec(0.12), vec(0.11)])).toBe(true);
+    expect(samplesConsistent([vec(0.1), vec(0.2)])).toBe(false);
   });
 });

@@ -1,12 +1,14 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { CalendarHeart, ClipboardCheck, MapPinOff, Users } from 'lucide-react';
 import { requireUser } from '@/server/current-user';
 import { db } from '@/server/db';
 import { statusOn } from '@/server/services/attendance';
-import { addDays, businessDate, fmtDate, fromDbDate, istTime, toDbDate } from '@/lib/dates';
+import { addDays, businessDate, fmtDate, fmtShort, fromDbDate, istTime, toDbDate } from '@/lib/dates';
 import { fmtDistance } from '@/lib/geo';
-import { METHOD_LABEL } from '@/lib/attendance-rules';
-import { Card, DayPill, Kpi, Kpis, PageHead, Pill, Stack, StatusPill, Table } from '@/components/ui';
+import { METHOD_LABEL, STATUS_LABEL } from '@/lib/attendance-rules';
+import { Avatar, Card, DayPill, Empty, PageHead, Stack, StatusPill, Two } from '@/components/ui';
+import { Donut, Legend } from '@/components/charts';
 
 export const metadata = { title: 'Team overview' };
 
@@ -30,6 +32,7 @@ export default async function Team() {
       },
       include: { employee: true },
       orderBy: { at: 'desc' },
+      take: 20,
     }),
     Promise.all([
       db.leaveRequest.count({ where: { employeeId: { in: ids }, status: 'PENDING' } }),
@@ -48,115 +51,132 @@ export default async function Team() {
     }),
   ]);
   const vals = [...status.values()];
-  const inNow = vals.filter((s) => s.row?.firstIn).length;
-  const remote = vals.filter((s) => s.row?.remote).length;
-  const away = vals.filter((s) => s.status === 'LEAVE').length;
+  const count = (f: (s: (typeof vals)[number]) => boolean) => vals.filter(f).length;
+  const seg = [
+    { label: 'In', value: count((s) => !!s.row?.firstIn && !s.row?.remote), color: 'var(--good)' },
+    { label: 'Remote', value: count((s) => !!s.row?.remote), color: 'var(--c2)' },
+    { label: 'On leave', value: count((s) => s.status === 'LEAVE'), color: 'var(--c4)' },
+    {
+      label: 'Not in',
+      value: count(
+        (s) => !s.row?.firstIn && s.status !== 'LEAVE' && s.status !== 'WEEKEND' && s.status !== 'HOLIDAY',
+      ),
+      color: 'var(--c6)',
+    },
+  ];
+  const waiting = pending[0] + pending[1] + pending[2];
   return (
     <Stack>
       <PageHead
+        eyebrow="Team"
         title="Team overview"
         lead={`${team.length} direct report(s) · ${fmtDate(today)}`}
         actions={
-          <Link className="btn btn-ghost" href="/team/attendance">
-            Team attendance
-          </Link>
+          <>
+            {waiting ? (
+              <Link className="btn" href="/approvals">
+                <ClipboardCheck className="size-4" /> {waiting} to approve
+              </Link>
+            ) : null}
+            <Link className="btn btn-ghost" href="/team/attendance">
+              Month view
+            </Link>
+          </>
         }
       />
-      <Kpis>
-        <Kpi label="In today" value={`${inNow} of ${team.length}`} sub={`${remote} remote`} />
-        <Kpi label="On leave today" value={away} />
-        <Kpi
-          label="Waiting for you"
-          value={pending[0] + pending[1] + pending[2]}
-          sub={`${pending[0]} leave · ${pending[1]} corrections · ${pending[2]} claims`}
-          tone={pending[0] + pending[1] + pending[2] ? 'warn' : undefined}
-        />
-        <Kpi
-          label="Outside-office punches"
-          value={flagged.length}
-          sub="last 14 days"
-          tone={flagged.length ? 'warn' : undefined}
-        />
-      </Kpis>
-      <Card title="Today">
-        <Table
-          rows={team.length}
-          head={['Person', 'Status', 'In', 'Out', 'Method', 'Where']}
-          empty="No direct reports."
-        >
-          {team.map((t) => {
-            const s = status.get(t.id);
-            const r = s?.row;
-            return (
-              <tr key={t.id}>
-                <td>
-                  {t.name}
-                  <div className="text-[13px] text-muted">{t.title}</div>
-                </td>
-                <td>{s ? <DayPill status={s.status} /> : null}</td>
-                <td className="font-mono">{r?.firstIn ? istTime(r.firstIn) : ''}</td>
-                <td className="font-mono">{r?.lastOut ? istTime(r.lastOut) : ''}</td>
-                <td>{r?.inMethod ? METHOD_LABEL[r.inMethod] : ''}</td>
-                <td>
-                  {r?.firstIn ? (
-                    r.officeId ? (
-                      'Office'
-                    ) : r.flagged ? (
-                      <Pill tone="bad">Outside office</Pill>
-                    ) : r.remote ? (
-                      'Remote'
-                    ) : (
-                      '—'
-                    )
-                  ) : (
-                    ''
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </Table>
-      </Card>
-      <Card title="Punches outside the office geofence">
-        <Table
-          rows={flagged.length}
-          head={['Person', 'Date', 'Time', 'Direction', '#Distance', '#Accuracy']}
-          empty="No flagged punches in the last 14 days."
-        >
-          {flagged.map((p) => (
-            <tr key={p.id}>
-              <td>{p.employee.name}</td>
-              <td className="whitespace-nowrap">{fmtDate(fromDbDate(p.businessDate))}</td>
-              <td className="font-mono">{istTime(p.at)}</td>
-              <td>{p.direction === 'IN' ? 'Check in' : 'Check out'}</td>
-              <td className="num">{fmtDistance(p.distanceM)}</td>
-              <td className="num">{p.accuracyM != null ? `±${p.accuracyM} m` : ''}</td>
-            </tr>
-          ))}
-        </Table>
-      </Card>
-      <Card title="Leave in the next 14 days">
-        <Table
-          rows={onLeaveSoon.length}
-          head={['Person', 'Type', 'Dates', '#Days', 'Status']}
-          empty="No leave coming up."
-        >
-          {onLeaveSoon.map((l) => (
-            <tr key={l.id}>
-              <td>{l.employee.name}</td>
-              <td>{l.type}</td>
-              <td className="whitespace-nowrap">
-                {fmtDate(fromDbDate(l.from))}
-                {l.to.getTime() !== l.from.getTime() ? ` to ${fmtDate(fromDbDate(l.to))}` : ''}
-              </td>
-              <td className="num">{l.days}</td>
-              <td>
-                <StatusPill status={l.status} />
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </Card>
+      {team.length ? (
+        <>
+          <Two wide>
+            <Card title="Today" icon={<Users />}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {team.map((t) => {
+                  const s = status.get(t.id);
+                  const r = s?.row;
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex items-center gap-3 rounded-2xl border border-line p-3 transition-colors hover:bg-surface-2"
+                    >
+                      <Avatar name={t.name} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">{t.name}</div>
+                        <div className="truncate text-xs text-muted">
+                          {r?.firstIn
+                            ? `In ${istTime(r.firstIn)} · ${METHOD_LABEL[r.inMethod ?? ''] ?? ''}${r.lastOut ? ` · out ${istTime(r.lastOut)}` : ''}`
+                            : t.title}
+                        </div>
+                      </div>
+                      {s ? (
+                        <DayPill
+                          status={s.status}
+                          label={r?.flagged ? 'Outside' : r?.remote ? 'Remote' : STATUS_LABEL[s.status]}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+            <Card title="Right now">
+              <div className="grid justify-items-center gap-4">
+                <Donut
+                  segments={seg}
+                  center={`${seg[0]!.value + seg[1]!.value}/${team.length}`}
+                  sub="checked in"
+                  size={150}
+                />
+                <Legend items={seg} values />
+              </div>
+            </Card>
+          </Two>
+          <Two>
+            <Card title="Outside the work area" sub="Last 14 days" icon={<MapPinOff />}>
+              {flagged.length ? (
+                <ul className="grid gap-2">
+                  {flagged.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex items-center justify-between gap-3 rounded-xl bg-bad-bg/50 px-3 py-2 text-sm"
+                    >
+                      <span>
+                        <b>{p.employee.name}</b> · {fmtShort(fromDbDate(p.businessDate))} {istTime(p.at)} ·{' '}
+                        {p.direction === 'IN' ? 'in' : 'out'}
+                      </span>
+                      <span className="chip shrink-0 bg-white text-bad">{fmtDistance(p.distanceM)} away</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Empty>No punches outside the work area.</Empty>
+              )}
+            </Card>
+            <Card title="Leave in the next 14 days" icon={<CalendarHeart />}>
+              {onLeaveSoon.length ? (
+                <ul className="grid gap-2.5">
+                  {onLeaveSoon.map((l) => (
+                    <li key={l.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Avatar name={l.employee.name} size={28} />
+                        <span className="truncate">
+                          <b>{l.employee.name.split(' ')[0]}</b> · {l.type} · {fmtShort(fromDbDate(l.from))}
+                          {l.to.getTime() !== l.from.getTime() ? ` – ${fmtShort(fromDbDate(l.to))}` : ''}
+                        </span>
+                      </span>
+                      <StatusPill status={l.status} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Empty>No leave coming up.</Empty>
+              )}
+            </Card>
+          </Two>
+        </>
+      ) : (
+        <div className="card">
+          <Empty icon={<Users />}>No one reports to you yet.</Empty>
+        </div>
+      )}
     </Stack>
   );
 }

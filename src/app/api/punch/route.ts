@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       time: istTime(r.punch.at),
       status: r.day?.status ?? null,
       officeId: r.punch.officeId,
+      zoneName: r.punch.zoneName,
       distanceM: r.punch.distanceM,
       flag: r.punch.flag,
       faceScore: r.punch.faceScore,

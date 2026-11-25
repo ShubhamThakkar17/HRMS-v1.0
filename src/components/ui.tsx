@@ -1,16 +1,28 @@
 // Shared server-safe UI pieces.
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import { STATUS_LABEL, type DisplayCode } from '@/lib/attendance-rules';
 
-export function PageHead({ title, lead, actions }: { title: string; lead?: ReactNode; actions?: ReactNode }) {
+export function PageHead({
+  title,
+  lead,
+  actions,
+  eyebrow,
+}: {
+  title: string;
+  lead?: ReactNode;
+  actions?: ReactNode;
+  eyebrow?: string;
+}) {
   return (
-    <header className="mb-1 flex flex-wrap items-end justify-between gap-3">
-      <div>
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        {eyebrow ? <div className="eyebrow mb-1">{eyebrow}</div> : null}
         <h1>{title}</h1>
-        {lead ? <p className="mt-1.5 max-w-[70ch] text-muted">{lead}</p> : null}
+        {lead ? <p className="mt-1.5 max-w-[68ch] text-[14.5px] text-muted">{lead}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2.5 no-print">{actions}</div> : null}
+      {actions ? <div className="no-print flex flex-wrap items-center gap-2">{actions}</div> : null}
     </header>
   );
 }
@@ -20,17 +32,31 @@ export function Card({
   extra,
   children,
   className = '',
+  icon,
+  sub,
 }: {
   title?: string;
   extra?: ReactNode;
   children: ReactNode;
   className?: string;
+  icon?: ReactNode;
+  sub?: ReactNode;
 }) {
   return (
     <section className={`card ${className}`}>
       {title ? (
-        <div className="mb-3 flex items-center justify-between gap-2.5">
-          <h2>{title}</h2>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            {icon ? (
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand [&>svg]:size-4">
+                {icon}
+              </span>
+            ) : null}
+            <div className="min-w-0">
+              <h2>{title}</h2>
+              {sub ? <p className="text-[13px] text-muted">{sub}</p> : null}
+            </div>
+          </div>
           {extra}
         </div>
       ) : null}
@@ -44,31 +70,64 @@ export function Kpi({
   value,
   sub,
   tone,
+  icon,
+  chart,
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
-  tone?: 'warn';
+  tone?: 'warn' | 'good' | 'bad';
+  icon?: ReactNode;
+  chart?: ReactNode;
 }) {
+  const toneCls =
+    tone === 'warn'
+      ? 'bg-warn-bg text-warn'
+      : tone === 'bad'
+        ? 'bg-bad-bg text-bad'
+        : tone === 'good'
+          ? 'bg-good-bg text-good'
+          : 'bg-brand-soft text-brand';
   return (
-    <div className={`card ${tone === 'warn' ? 'border-l-4 border-l-[#e2a33a]' : ''}`}>
-      <div className="text-[13px] font-medium text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-      {sub ? <div className="mt-0.5 text-[13px] text-muted">{sub}</div> : null}
+    <div className="card card-hover relative overflow-hidden !p-4.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[13px] font-medium text-muted">{label}</div>
+        {icon ? (
+          <span className={`grid size-8 place-items-center rounded-lg [&>svg]:size-4 ${toneCls}`}>
+            {icon}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <div className="text-[26px] leading-none font-semibold tracking-tight tabular-nums">{value}</div>
+        {chart}
+      </div>
+      {sub ? <div className="mt-2 text-[12.5px] text-muted">{sub}</div> : null}
     </div>
   );
 }
 
 export function Kpis({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3.5">{children}</div>;
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
+      {children}
+    </div>
+  );
 }
 
+/** Page wrapper: children rise in, one after another. */
 export function Stack({ children }: { children: ReactNode }) {
-  return <div className="grid gap-4">{children}</div>;
+  return <div className="rise grid gap-5">{children}</div>;
 }
 
-export function Two({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">{children}</div>;
+export function Two({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <div
+      className={`grid grid-cols-1 gap-5 ${wide ? 'lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]' : 'lg:grid-cols-2'}`}
+    >
+      {children}
+    </div>
+  );
 }
 
 const TONE = {
@@ -76,21 +135,36 @@ const TONE = {
   warn: 'bg-warn-bg text-warn',
   info: 'bg-info-bg text-info',
   bad: 'bg-bad-bg text-bad',
-  grey: 'bg-[#eceeee] text-muted',
-  dashed: 'border border-dashed border-[#c9d3cf] text-muted',
+  grey: 'bg-soft text-muted',
+  dashed: 'border border-dashed border-line text-faint',
+} as const;
+const DOT = {
+  good: 'bg-good',
+  warn: 'bg-warn',
+  info: 'bg-info',
+  bad: 'bg-bad',
+  grey: 'bg-faint',
+  dashed: 'bg-line',
 } as const;
 
-export function Pill({ tone, children }: { tone: keyof typeof TONE; children: ReactNode }) {
+export function Pill({
+  tone,
+  children,
+  dot = true,
+}: {
+  tone: keyof typeof TONE;
+  children: ReactNode;
+  dot?: boolean;
+}) {
   return (
-    <span
-      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap ${TONE[tone]}`}
-    >
+    <span className={`chip ${TONE[tone]}`}>
+      {dot && tone !== 'dashed' ? <span className={`size-1.5 rounded-full ${DOT[tone]}`} /> : null}
       {children}
     </span>
   );
 }
 
-const DAY_TONE: Record<DisplayCode, keyof typeof TONE> = {
+export const DAY_TONE: Record<DisplayCode, keyof typeof TONE> = {
   PRESENT: 'good',
   LATE: 'warn',
   SHORT: 'warn',
@@ -140,9 +214,9 @@ export function Table({
   empty?: string;
   rows: number;
 }) {
-  if (!rows) return <p className="py-1.5 text-muted">{empty ?? 'Nothing to show yet.'}</p>;
+  if (!rows) return <Empty>{empty ?? 'Nothing to show yet.'}</Empty>;
   return (
-    <div className="overflow-x-auto">
+    <div className="-mx-5 overflow-x-auto px-5">
       <table>
         <thead>
           <tr>
@@ -159,30 +233,54 @@ export function Table({
   );
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <p className="py-1.5 text-muted">{children}</p>;
+export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
+  return (
+    <div className="grid place-items-center gap-2 py-8 text-center text-sm text-muted">
+      <span className="grid size-11 place-items-center rounded-full bg-soft text-faint [&>svg]:size-5">
+        {icon ?? <Inbox />}
+      </span>
+      {children}
+    </div>
+  );
 }
 
 export function Notice({ children, tone = 'warn' }: { children: ReactNode; tone?: 'warn' | 'info' | 'bad' }) {
   const cls =
     tone === 'warn'
-      ? 'bg-warn-bg border-[#eed7aa]'
+      ? 'bg-warn-bg border-[#f1dcb1]'
       : tone === 'bad'
-        ? 'bg-bad-bg border-[#e9c1bb]'
-        : 'bg-info-bg border-[#c6d4ea]';
+        ? 'bg-bad-bg border-[#f0c9c3]'
+        : 'bg-info-bg border-[#cbdaf2]';
   return (
-    <section className={`flex flex-wrap items-center gap-3 rounded-xl border p-4 ${cls}`}>{children}</section>
+    <section className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 ${cls}`}>
+      {children}
+    </section>
   );
 }
 
-export function Avatar({ name }: { name: string }) {
+const AVATAR_BG = ['#e6f2ed', '#e5eefb', '#fdf1dc', '#fbe7e4', '#efe9fb', '#e3f4f4'];
+const AVATAR_FG = ['#0d5c48', '#2c5aa0', '#9a5b06', '#b23a2c', '#6b46c1', '#0f6b6b'];
+export function Avatar({ name, size = 40 }: { name: string; size?: number }) {
   const initials = name
     .split(' ')
     .map((p) => p[0])
     .slice(0, 2)
     .join('');
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const i = h % AVATAR_BG.length;
   return (
-    <div className="grid size-10 flex-none place-items-center rounded-full bg-soft text-sm font-bold text-brand">
+    <div
+      className="grid shrink-0 place-items-center rounded-full font-semibold"
+      style={{
+        width: size,
+        height: size,
+        background: AVATAR_BG[i],
+        color: AVATAR_FG[i],
+        fontSize: size * 0.36,
+      }}
+      aria-hidden
+    >
       {initials}
     </div>
   );
@@ -190,11 +288,11 @@ export function Avatar({ name }: { name: string }) {
 
 export function Facts({ items }: { items: [string, ReactNode][] }) {
   return (
-    <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-5 gap-y-2">
+    <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2.5">
       {items.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-[13px] text-muted">{k}</dt>
-          <dd className="m-0">{v}</dd>
+          <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{v}</dd>
         </div>
       ))}
     </dl>
@@ -216,103 +314,48 @@ export function MonthNav({
   const prev = new Date(Date.UTC(y!, m! - 2, 1)).toISOString().slice(0, 7);
   const next = new Date(Date.UTC(y!, m!, 1)).toISOString().slice(0, 7);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1 rounded-xl border border-line bg-white p-1">
       <Link
-        className="btn btn-ghost btn-sm"
+        className="grid size-8 place-items-center rounded-lg text-muted hover:bg-soft hover:text-ink"
         href={`${base}?month=${prev}${extra}`}
         aria-label="Previous month"
       >
-        ‹
+        <ChevronLeft className="size-4" />
       </Link>
-      <span className="min-w-36 text-center font-medium">{label}</span>
-      <Link className="btn btn-ghost btn-sm" href={`${base}?month=${next}${extra}`} aria-label="Next month">
-        ›
+      <span className="min-w-32 text-center text-sm font-semibold">{label}</span>
+      <Link
+        className="grid size-8 place-items-center rounded-lg text-muted hover:bg-soft hover:text-ink"
+        href={`${base}?month=${next}${extra}`}
+        aria-label="Next month"
+      >
+        <ChevronRight className="size-4" />
       </Link>
     </div>
   );
 }
 
-/** Horizontal bars, values as percentages of max. */
-export function Bars({ rows }: { rows: { label: string; value: number; display: string }[] }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
+/** Segmented tabs rendered as links (keeps pages server-rendered). */
+export function Tabs({
+  items,
+  current,
+}: {
+  items: { href: string; label: string; key: string }[];
+  current: string;
+}) {
   return (
-    <div className="grid gap-2.5">
-      {rows.map((r) => (
-        <div
-          key={r.label}
-          className="grid grid-cols-[110px_minmax(0,1fr)_80px] items-center gap-3 text-sm md:grid-cols-[150px_minmax(0,1fr)_90px]"
+    <div className="inline-flex rounded-xl border border-line bg-white p-1">
+      {items.map((t) => (
+        <Link
+          key={t.key}
+          href={t.href}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${t.key === current ? 'bg-brand text-white' : 'text-muted hover:text-ink'}`}
         >
-          <span className="truncate">{r.label}</span>
-          <div className="h-2.5 overflow-hidden rounded-md bg-[#e4ebe8]">
-            <span
-              className="block h-full rounded-md bg-brand"
-              style={{ width: `${(r.value / max) * 100}%` }}
-            />
-          </div>
-          <strong className="text-right tabular-nums">{r.display}</strong>
-        </div>
+          {t.label}
+        </Link>
       ))}
     </div>
   );
 }
 
-/** Vertical bar chart (SVG). */
-export function ColumnChart({
-  points,
-  max = 100,
-  suffix = '%',
-}: {
-  points: { label: string; value: number; title?: string }[];
-  max?: number;
-  suffix?: string;
-}) {
-  const W = 640;
-  const H = 200;
-  const pad = { l: 34, r: 8, t: 10, b: 28 };
-  const iw = W - pad.l - pad.r;
-  const ih = H - pad.t - pad.b;
-  const bw = iw / Math.max(1, points.length);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label="Bar chart">
-      {[0, 25, 50, 75, 100].map((g) => {
-        const y = pad.t + ih - (g / 100) * ih;
-        return (
-          <g key={g}>
-            <line x1={pad.l} x2={W - pad.r} y1={y} y2={y} stroke="#e4ebe8" />
-            <text x={pad.l - 6} y={y + 4} textAnchor="end" className="fill-muted text-[11px]">
-              {Math.round((g / 100) * max)}
-              {suffix}
-            </text>
-          </g>
-        );
-      })}
-      {points.map((p, i) => {
-        const h = (Math.min(p.value, max) / max) * ih;
-        const x = pad.l + i * bw + bw * 0.18;
-        const last = i === points.length - 1;
-        return (
-          <g key={p.label}>
-            <rect
-              x={x}
-              y={pad.t + ih - h}
-              width={bw * 0.64}
-              height={h}
-              rx={3}
-              fill={last ? 'var(--brand)' : '#7fa89a'}
-            >
-              <title>{p.title ?? `${p.label}: ${p.value}${suffix}`}</title>
-            </rect>
-            <text
-              x={x + bw * 0.32}
-              y={H - 10}
-              textAnchor="middle"
-              className={`text-[11px] ${last ? 'fill-ink font-semibold' : 'fill-muted'}`}
-            >
-              {p.label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
+// Back-compat re-exports for older pages.
+export { BarList as Bars, Columns as ColumnChart } from './charts';

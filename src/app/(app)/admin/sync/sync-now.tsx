@@ -19,9 +19,7 @@ export function SyncNow({ disabled }: { disabled: boolean }) {
           <Submit pendingText="Syncing every tab…">Sync now</Submit>
         )}
         {disabled ? (
-          <span className="text-[13px] text-muted">
-            Configure the service account and link a sheet first.
-          </span>
+          <span className="text-[13px] text-muted">Connect Google Sheets first (see Connection).</span>
         ) : null}
       </div>
       <Status state={state} />

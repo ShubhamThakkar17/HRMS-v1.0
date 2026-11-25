@@ -7,8 +7,8 @@ const isDev = process.env.NODE_ENV !== 'production';
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ''}`,
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
   "img-src 'self' data: blob: https://*.googleusercontent.com https://tile.openstreetmap.org",
   "media-src 'self' blob:",
   "connect-src 'self'",
@@ -24,6 +24,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['@prisma/client'],
   experimental: {
     serverActions: { bodySizeLimit: '11mb' },
+    optimizePackageImports: ['lucide-react'],
   },
   webpack(config) {
     // face-api ships a prebundled TensorFlow.js that trips a harmless "critical dependency" warning.
@@ -32,6 +33,11 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        // Face models never change for a given build: cache them for a year.
+        source: '/models/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
       {
         source: '/(.*)',
         headers: [

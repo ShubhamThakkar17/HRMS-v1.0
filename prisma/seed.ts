@@ -1,5 +1,6 @@
 /* Loads the same sample company as the prototype. All people and figures are invented. */
-import { PrismaClient, type PunchMethod, type Prisma } from '@prisma/client';
+import { type PunchMethod, type Prisma } from '@prisma/client';
+import { createPrismaClient } from '../src/server/prisma-client';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { rebuildDay, type PunchLike } from '../src/lib/attendance-rules';
 import { addDays, businessDate, eachDay, istInstant, toDbDate, type ISODate } from '../src/lib/dates';
@@ -8,7 +9,7 @@ import { holidaySetFor, countWorkingDays, isWorkingDay } from '../src/lib/leave-
 import { DEFAULT_ROLES, ROLE_ORDER } from '../src/lib/permissions';
 import { newKioskSecret } from '../src/lib/kiosk';
 
-const db = new PrismaClient();
+const db = createPrismaClient();
 
 function fnv(str: string) {
   let h = 0x811c9dc5;

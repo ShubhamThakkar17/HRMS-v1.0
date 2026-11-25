@@ -1,12 +1,15 @@
+import { Clock3, LogIn, LogOut, MapPinned } from 'lucide-react';
 import { requireUser } from '@/server/current-user';
 import { db } from '@/server/db';
 import { attendanceRange } from '@/server/services/attendance';
 import { faceStatus } from '@/server/services/face';
 import { getSetting } from '@/server/settings';
-import { businessDate, fmtDate, istTime } from '@/lib/dates';
+import { businessDate, fmtDate, fmtWeekday, istTime } from '@/lib/dates';
 import { METHOD_LABEL } from '@/lib/attendance-rules';
+import { GEO_RULE_LABEL, allowedAreas, fmtDistance } from '@/lib/geo';
 import { whereLabel } from '@/components/attendance-table';
-import { Card, DayPill, Facts, PageHead, Stack } from '@/components/ui';
+import { Card, DayPill, PageHead, Stack, Two } from '@/components/ui';
+import { Elapsed, LiveClock } from '@/components/clock';
 import { PunchPanel } from './punch-panel';
 
 export const metadata = { title: 'Punch in and out' };
@@ -14,72 +17,132 @@ export const metadata = { title: 'Punch in and out' };
 export default async function PunchPage() {
   const user = await requireUser();
   const today = businessDate();
-  const [[day], settings, face, consent, offices] = await Promise.all([
+  const [[day], settings, face, consent, offices, me] = await Promise.all([
     attendanceRange(user.id, today, today),
     getSetting('punch'),
     faceStatus(user.id),
     db.consentRecord.findFirst({ where: { employeeId: user.id, kind: 'LOCATION', withdrawnAt: null } }),
-    db.office.findMany(),
+    db.office.findMany({ orderBy: { code: 'asc' } }),
+    db.employee.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { geoRule: true, geoStrict: true, zones: true },
+    }),
   ]);
   const home = offices.find((o) => o.id === user.officeId);
   const officeNames = new Map(offices.map((o) => [o.id, o.name.split(',')[0]!]));
-  const phase = !day?.firstIn ? 'in' : !day.lastOut ? 'out' : 'done';
-  const rule =
-    user.workMode === 'OFFICE'
-      ? `Office-based: location punches must be inside ${home?.name ?? 'your office'} (${home?.radiusM ?? 200} m). Punches outside are flagged for your manager.`
-      : user.workMode === 'HYBRID'
-        ? 'Hybrid: punch from the office or remotely. Remote punches are tagged as remote.'
-        : 'Remote or field: punch from anywhere. Your location is recorded with each punch.';
+  const phase = !day!.firstIn ? 'in' : !day!.lastOut ? 'out' : 'done';
+  const areas = allowedAreas(
+    { workMode: user.workMode, rule: me.geoRule, strict: me.geoStrict, assignedOfficeId: user.officeId },
+    offices,
+    me.zones,
+  );
+  const outsideText =
+    me.geoRule === 'ANYWHERE'
+      ? 'You can punch from anywhere; your location is recorded.'
+      : me.geoStrict
+        ? 'Punches outside these areas are refused.'
+        : user.workMode === 'OFFICE'
+          ? 'Punches outside these areas are allowed but flagged for your manager.'
+          : 'Punches outside these areas are recorded as remote.';
   return (
     <Stack>
-      <PageHead title="Punch in and out" lead={`${fmtDate(today)} · ${rule}`} />
-      <Card title="Today" extra={day ? <DayPill status={day.status} /> : null}>
-        {day?.firstIn ? (
-          <Facts
-            items={[
-              [
-                'In',
-                <span key="i">
-                  <span className="font-mono">{istTime(day.firstIn)}</span> ·{' '}
-                  {METHOD_LABEL[day.inMethod ?? '']}
-                </span>,
-              ],
-              ['Where', whereLabel(day, officeNames) ?? '—'],
-              ...(day.lastOut
-                ? ([
-                    [
-                      'Out',
-                      <span key="o">
-                        <span className="font-mono">{istTime(day.lastOut)}</span> · {day.hours} hours
-                      </span>,
-                    ],
-                  ] as [string, React.ReactNode][])
-                : []),
-            ]}
-          />
+      <PageHead
+        eyebrow={`${fmtWeekday(today)}, ${fmtDate(today)}`}
+        title={phase === 'done' ? 'All done for today' : phase === 'out' ? 'Ready to check out?' : 'Check in'}
+        actions={
+          <div className="text-right">
+            <div className="text-3xl font-semibold tracking-tight">
+              <LiveClock seconds />
+            </div>
+            <div className="text-xs text-muted">India Standard Time</div>
+          </div>
+        }
+      />
+      <Two wide>
+        {phase === 'done' ? (
+          <Card>
+            <p className="text-muted">
+              You have checked in and out today. If a time is wrong, ask for a correction from My attendance.
+            </p>
+          </Card>
         ) : (
-          <p className="text-muted">Not checked in yet today.</p>
+          <PunchPanel
+            key={phase}
+            verb={phase === 'in' ? 'Check in' : 'Check out'}
+            methods={{
+              face: settings.face && home?.faceEnabled !== false,
+              geo: settings.geo && home?.geoEnabled !== false,
+              kiosk: settings.kiosk,
+              web: settings.web,
+            }}
+            faceEnrolled={!!face}
+            locationConsented={!!consent}
+            ruleLabel={GEO_RULE_LABEL[me.geoRule]}
+          />
         )}
-      </Card>
-      {phase === 'done' ? (
-        <Card>
-          <p>
-            You have checked in and out today. If a time is wrong, ask for a correction from My attendance.
-          </p>
-        </Card>
-      ) : (
-        <PunchPanel
-          verb={phase === 'in' ? 'Check in' : 'Check out'}
-          methods={{
-            face: settings.face && home?.faceEnabled !== false,
-            geo: settings.geo && home?.geoEnabled !== false,
-            kiosk: settings.kiosk,
-            web: settings.web,
-          }}
-          faceEnrolled={!!face}
-          locationConsented={!!consent}
-        />
-      )}
+        <div className="grid content-start gap-5">
+          <Card title="Today" icon={<Clock3 />} extra={<DayPill status={day!.status} />}>
+            <ol className="relative grid gap-4 border-l-2 border-line pl-5">
+              <li className="relative">
+                <span
+                  className={`absolute top-0.5 -left-[29px] grid size-6 place-items-center rounded-full ${day!.firstIn ? 'bg-good text-white' : 'bg-soft text-faint'}`}
+                >
+                  <LogIn className="size-3.5" />
+                </span>
+                <div className="text-sm font-semibold">
+                  {day!.firstIn ? `Checked in at ${istTime(day!.firstIn)}` : 'Not checked in yet'}
+                </div>
+                {day!.firstIn ? (
+                  <div className="text-[13px] text-muted">
+                    {METHOD_LABEL[day!.inMethod ?? '']} · {whereLabel(day!, officeNames) ?? '—'}
+                  </div>
+                ) : null}
+              </li>
+              <li className="relative">
+                <span
+                  className={`absolute top-0.5 -left-[29px] grid size-6 place-items-center rounded-full ${day!.lastOut ? 'bg-good text-white' : 'bg-soft text-faint'}`}
+                >
+                  <LogOut className="size-3.5" />
+                </span>
+                <div className="text-sm font-semibold">
+                  {day!.lastOut
+                    ? `Checked out at ${istTime(day!.lastOut)} · ${day!.hours} h`
+                    : day!.firstIn
+                      ? 'Working now'
+                      : 'Check out later'}
+                </div>
+                {day!.firstIn && !day!.lastOut ? (
+                  <div className="text-[13px] text-muted">
+                    <Elapsed since={day!.firstIn.toISOString()} /> so far
+                  </div>
+                ) : null}
+              </li>
+            </ol>
+          </Card>
+          <Card title="Where you can punch" icon={<MapPinned />} sub={GEO_RULE_LABEL[me.geoRule]}>
+            <ul className="grid gap-2 text-sm">
+              {areas.map((a) => {
+                const g = a.kind === 'office' ? a.office : a.zone;
+                return (
+                  <li key={`${a.kind}-${g.id}`} className="flex items-center justify-between gap-3">
+                    <a
+                      href={`https://www.openstreetmap.org/?mlat=${g.lat}&mlon=${g.lng}#map=17/${g.lat}/${g.lng}`}
+                      target="_blank"
+                      rel="noopener"
+                      className="truncate"
+                    >
+                      {a.kind === 'office' ? a.office.name : a.zone.name}
+                    </a>
+                    <span className="chip shrink-0 bg-soft text-muted">{fmtDistance(g.radiusM)} radius</span>
+                  </li>
+                );
+              })}
+              {!areas.length ? <li className="text-muted">No fixed area.</li> : null}
+            </ul>
+            <p className="mt-3 text-xs text-muted">{outsideText}</p>
+          </Card>
+        </div>
+      </Two>
     </Stack>
   );
 }

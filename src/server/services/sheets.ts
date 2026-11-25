@@ -340,15 +340,47 @@ export interface TabResult {
 }
 
 /** Write one tab per table, clearing each tab first. Missing tabs are created. */
-export async function syncToSheets(actor: CurrentUser | null): Promise<TabResult[]> {
-  if (actor) requirePermission(actor, 'sheets.sync');
-  const cfg = await getSetting('sheets');
-  const sheetId = cfg.sheetId || process.env.GOOGLE_SHEET_ID || '';
-  if (!sheetId) throw new UserError('Link a Google Sheet first.');
+/** Which way the backup reaches Google Sheets, if any is configured. */
+export function sheetsTransport(): 'apps-script' | 'service-account' | null {
+  if (process.env.GOOGLE_SHEETS_WEBHOOK_URL && process.env.GOOGLE_SHEETS_WEBHOOK_SECRET) return 'apps-script';
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) return 'service-account';
+  return null;
+}
+
+/** Apps Script route: one POST with every tab; the script in the sheet clears and writes each tab. */
+async function viaAppsScript(): Promise<TabResult[]> {
+  const tabs: { name: string; values: Cell[][] }[] = [];
+  const failed: TabResult[] = [];
+  for (const tab of TABS) {
+    try {
+      tabs.push({ name: tab.name, values: [tab.head, ...(await tab.rows())] });
+    } catch (e) {
+      failed.push({ tab: tab.name, ok: false, rows: 0, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  const res = await fetch(process.env.GOOGLE_SHEETS_WEBHOOK_URL!, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ secret: process.env.GOOGLE_SHEETS_WEBHOOK_SECRET, tabs }),
+    redirect: 'follow',
+  });
+  const text = await res.text();
+  let body: { ok?: boolean; error?: string; results?: TabResult[] } = {};
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new UserError(
+      `The Google Sheets script did not answer correctly (HTTP ${res.status}). Check the web app URL and that it is deployed for "Anyone".`,
+    );
+  }
+  if (!body.ok) throw new UserError(`Google Sheets script: ${body.error ?? 'unknown error'}`);
+  return [...(body.results ?? []), ...failed];
+}
+
+/** Service-account route: Sheets API, clearing and writing each tab. */
+async function viaServiceAccount(sheetId: string): Promise<TabResult[]> {
   const token = await accessToken();
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`;
-
-  // Ensure every tab exists.
   const meta = await fetch(`${base}?fields=sheets.properties.title`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -367,7 +399,6 @@ export async function syncToSheets(actor: CurrentUser | null): Promise<TabResult
       requests: missing.map((t) => ({ addSheet: { properties: { title: t.name } } })),
     });
   }
-
   const results: TabResult[] = [];
   for (const tab of TABS) {
     try {
@@ -382,12 +413,27 @@ export async function syncToSheets(actor: CurrentUser | null): Promise<TabResult
       results.push({ tab: tab.name, ok: false, rows: 0, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  return results;
+}
+
+/** Write one tab per table, clearing each tab first. Missing tabs are created. Never exports face data or secrets. */
+export async function syncToSheets(actor: CurrentUser | null): Promise<TabResult[]> {
+  if (actor) requirePermission(actor, 'sheets.sync');
+  const cfg = await getSetting('sheets');
+  const sheetId = cfg.sheetId || process.env.GOOGLE_SHEET_ID || '';
+  const transport = sheetsTransport();
+  if (!transport)
+    throw new UserError('Google Sheets is not connected yet. See the setup steps on this page.');
+  if (transport === 'service-account' && !sheetId) throw new UserError('Link a Google Sheet first.');
+  const results = transport === 'apps-script' ? await viaAppsScript() : await viaServiceAccount(sheetId);
   await setSetting('sheets', {
     sheetId,
     lastSyncAt: new Date().toISOString(),
     lastSyncBy: actor?.name ?? 'Nightly backup',
     lastResults: results,
   });
-  await db.$transaction((tx) => writeAudit(tx, actor, 'sheets.sync', 'Setting', 'sheets', { results }));
+  await db.$transaction((tx) =>
+    writeAudit(tx, actor, 'sheets.sync', 'Setting', 'sheets', { results, transport }),
+  );
   return results;
 }
