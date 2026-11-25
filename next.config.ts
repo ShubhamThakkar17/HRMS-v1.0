@@ -22,6 +22,10 @@ const csp = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ['@prisma/client'],
+  // Prisma's client engine loads a .wasm query compiler at runtime; make sure every function bundles it.
+  outputFileTracingIncludes: {
+    '/**': ['./node_modules/.prisma/client/*.wasm', './node_modules/.prisma/client/query_compiler_bg.js'],
+  },
   experimental: {
     serverActions: { bodySizeLimit: '11mb' },
     optimizePackageImports: ['lucide-react'],
